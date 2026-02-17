@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Web: Attach to Node (adapter-node)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+
+    {
+      "name": "gRPC: C++ (GDB)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/grpc/build/crisis_server",
+      "args": ["/models/crisis_gru.onnx"],
+      "cwd": "${workspaceFolder}/grpc",
+      "stopAtEntry": false,
+      "MIMode": "gdb",
+      "environment": [
+        { "name": "ORT_LOG_SEVERITY_LEVEL", "value": "0" }
+      ]
+    }
+  ]
+}

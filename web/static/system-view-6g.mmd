@@ -1,0 +1,51 @@
+flowchart TB
+  %% ===== External / OAM =====
+  subgraph OAM["External / OAM"]
+    DT["Network Digital Twin"]
+    FL["<span class='filler'></span>"]
+    SMO["SMO"]
+    ST["<span class='dynamic-status'></span>"]
+  end
+
+  %% ===== Core / Management =====
+  subgraph CORE["6G Core / Management"]
+    AIML["AI Management Function"]
+    MDA["Management Data Analytics<br/>(Sustainability KPIs)"]
+  end
+
+  %% ===== Terrestrial RAN =====
+  subgraph RAN["6G RAN (AI-Native, ISAC)"]
+    CU["CU<br/>(Global AI Control)"]
+    DU["DU<br/>(Edge AI Agent)"]
+    RU["RU<br/>(ISAC)"]
+  end
+
+  %% ===== NTN =====
+  subgraph NTN["NTN Domain"]
+    GW["NTN Gateway"]
+    SAT["Satellite / HAPS"]
+  end
+
+  %% ===== UE =====
+  UE["UE<br/>(UE-side AI)"]
+
+  %% ===== Control & Learning Loops =====
+  DT <--> SMO
+  SMO <--> AIML
+  AIML --> MDA
+
+  %% ===== Intent & Policy Paths =====
+  MDA -- "Intent-Driven<br/>Sustainability Policy" --> CU
+  CU -- "Real-time Optimization" --> DU
+  DU -- "Adaptive Beam & Sensing" --> RU
+  RU <--> UE
+
+  %% ===== NTN Sustainability Fallback =====
+  MDA -- "Sustainability Trigger" --> GW
+  GW -- "Adaptive Steering" --> SAT
+  SAT <--> UE
+
+  style ST fill:none,stroke:none
+  style FL fill:none,stroke:none
+  class CU,DU,RU activeR
+  class GW,SAT activeN

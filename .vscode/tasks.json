@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build gRPC (CMake)",
+      "type": "shell",
+      "command": "cmake -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build",
+      "options": {
+        "cwd": "${workspaceFolder}/grpc"
+      }
+    },
+    {
+      "label": "Docker Compose Up",
+      "type": "shell",
+      "command": "docker compose up --build",
+      "group": "build"
+    }
+  ]
+}

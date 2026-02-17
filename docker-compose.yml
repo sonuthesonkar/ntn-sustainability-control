@@ -1,0 +1,68 @@
+services:
+  # --- Database layer ---
+  db:
+    # TimescaleDB: Postgres optimized for time-series data
+    image: timescale/timescaledb:latest-pg15
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      # Uses Docker Secrets for the password to avoid plain-text env variables
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_pass
+      POSTGRES_DB: ${DB_NAME}
+    secrets:
+      - db_pass
+    volumes:
+      - ./LICENSE:/LICENSE:ro # Mount license file as read-only
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql # Auto-runs schema on startup
+      - pg_data:/var/lib/postgresql/data # Persistent storage for DB data
+  
+  # --- Build dependency layer ---
+  vcpkg-base:
+    # Pre-builds C++ dependencies to speed up the main gRPC build
+    build:
+      context: .
+      dockerfile: grpc/Dockerfile.base
+    image: vcpkg-base:latest
+
+  # --- gRPC service layer ---
+  grpc:
+    build:
+      context: .
+      dockerfile: grpc/Dockerfile
+    depends_on: [vcpkg-base] # Ensures the base image exists before building
+    environment:
+      - LD_LIBRARY_PATH=/opt/onnxruntime/lib # Required for ONNX runtime linkage
+    ports:
+      - "50051:50051" # Default gRPC port
+
+  # --- Web GUI layer ---
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    environment:
+      # Direct connection string for the Node.js application
+      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      NODE_ENV: ${NODE_ENV:-production}
+    depends_on: [db, grpc] # Ensures backend services are up before web starts
+    ports:
+      - "3000:3000" # Main web traffic
+      - "9229:9229" # Node.js debugging port
+    command: >
+      sh -c "node
+      ${DEBUG:+--inspect=0.0.0.0:9229}
+      build/index.js"
+
+# --- Network and storage config ---
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      # Reduced MTU to avoid network failures due to fragmentation
+      com.docker.network.driver.mtu: "1400"
+
+volumes:
+  pg_data: # Named volume for database persistence
+
+secrets:
+  db_pass:
+    file: ./password.txt # Source file for the database password secret

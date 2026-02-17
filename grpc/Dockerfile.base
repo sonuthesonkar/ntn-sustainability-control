@@ -1,0 +1,31 @@
+FROM ubuntu:24.04
+# Metadata for Docker Hub
+LABEL org.opencontainers.image.licenses="MIT"
+
+# 0. Optimize network and resource
+# Limit threads to be used by docker.
+ENV VCPKG_MAX_CONCURRENCY=6
+
+# Increase timeout and add retries for slow downloads
+ENV VCPKG_DOWNLOADS_RETRIES=10
+
+# Optional: Use a specific curl config if needed
+RUN echo "retry = 10\nretry-delay = 5\nconnect-timeout = 60" > ~/.curlrc
+
+# 1. Install build tools and vcpkg dependencies
+RUN apt-get update && apt-get install -y \
+    cmake curl zip unzip tar git build-essential pkg-config libssl-dev zlib1g-dev wget
+
+
+# 2. Install gRPC & Protobuf via vcpkg (Fast)
+WORKDIR /opt
+COPY LICENSE .
+RUN git clone https://github.com/microsoft/vcpkg.git && ./vcpkg/bootstrap-vcpkg.sh
+RUN /opt/vcpkg/vcpkg install grpc protobuf nlohmann-json --triplet x64-linux --clean-after-build
+
+# 3. Download Official ONNX Runtime Binaries (Instant)
+# Using v1.23.2 (Current Stable)
+RUN wget https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz && \
+    tar -xzf onnxruntime-linux-x64-1.23.2.tgz && \
+    mv onnxruntime-linux-x64-1.23.2 /opt/onnxruntime && \
+    rm onnxruntime-linux-x64-1.23.2.tgz

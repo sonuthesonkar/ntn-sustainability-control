@@ -1,0 +1,63 @@
+services:
+  # --- TimescaleDB (PostgreSQL with Time-Series support) ---
+  db:
+    image: timescale/timescaledb:latest-pg15
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      # Read the DB password from the Docker secret mount point
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_pass
+      POSTGRES_DB: ${DB_NAME}
+    secrets:
+      - db_pass
+    volumes:
+      # Auto-run SQL scripts on initial database creation
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Named volume to ensure data survives container restarts/deletions
+      - pg_data:/var/lib/postgresql/data
+    restart: always
+
+  # --- gRPC Service ---
+  grpc:
+    # Pull the pre-compiled C++ gRPC logic from Docker Hub
+    image: sonusonkar/ntn-sustainability-control-grpc:v1.0.0
+    environment:
+      # Ensure the system can find ONNX Runtime shared libraries for AI/ML inference
+      - LD_LIBRARY_PATH=/opt/onnxruntime/lib
+    ports:
+      - "50051:50051"
+    restart: always
+
+  # --- Node.js Web Service ---
+  web:
+    # Pull the pre-built web application from Docker Hub
+    image: sonusonkar/ntn-sustainability-control-web:v1.0.0
+    environment:
+      # Connection string for Node.js to reach the 'db' service
+      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      NODE_ENV: ${NODE_ENV:-production}
+    depends_on:
+      - db   # Wait for DB container to start
+      - grpc # Wait for gRPC container to start
+    ports:
+      - "3000:3000"
+    # Executes the compiled Node.js entry point
+    command: node build/index.js
+    restart: always
+
+# --- Network configuration ---
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      # Adjusted MTU to avoid network issues due to fragmentation
+      com.docker.network.driver.mtu: "1400"
+
+# --- Persistent storage ---
+volumes:
+  pg_data: # Database storage volume
+
+# --- Sensitive data handling ---
+secrets:
+  db_pass:
+    # Loads the password from a local text file
+    file: ./password.txt
