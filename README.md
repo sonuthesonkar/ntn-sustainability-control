@@ -26,7 +26,9 @@ This architecture models sustainability as a temporal signal and governs NTN act
 ---
 
 ## Architecture Overview
-![Architecture Diagram](docs/ntn-sustainability-control-architecture.png)
+<p align="center">
+    <img src="docs/ntn-sustainability-control-architecture.webp" width="35%">
+</p>
 
 Design principle: ML predicts sustainability stress. Deterministic policy governs NTN activation.
 
@@ -59,8 +61,9 @@ Strict separation of concerns:
 ---
 
 ## Web Interface
-
-![Web GUI](docs/ntn-sustainability-control-web-gui.png)
+<p align="center">
+    <img src="docs/ntn-sustainability-control-web-gui.webp" width="95%">
+</p>
 
 The interface provides:
 

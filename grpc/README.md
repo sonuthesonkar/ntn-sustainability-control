@@ -67,7 +67,10 @@ Expected behavior:
 
 - A plot will be shown with predictions and true crisis scores, 
   along with NTN state changes at the bottom
-- ![grpc-model-validation](validation/grpc_model_validation.png)
+
+<p align="center">
+    <img src="validation/grpc_model_validation.webp" width="75%">
+</p>
 
 ---
 
