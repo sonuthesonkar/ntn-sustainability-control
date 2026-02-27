@@ -119,7 +119,7 @@ NTN acts as:
 
 ---
 
-## Run Locally
+## Run Services
 
 1. Create `.env` file:<br/>
     `DB_USER=<user-name>`<br/>

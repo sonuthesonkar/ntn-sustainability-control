@@ -19,7 +19,7 @@ services:
   # --- gRPC Service ---
   grpc:
     # Pull the pre-compiled C++ gRPC logic from Docker Hub
-    image: sonusonkar/ntn-sustainability-control-grpc:v1.0.0
+    image: sonusonkar/ntn-sustainability-control-grpc:v1.1.0
     environment:
       # Ensure the system can find ONNX Runtime shared libraries for AI/ML inference
       - LD_LIBRARY_PATH=/opt/onnxruntime/lib

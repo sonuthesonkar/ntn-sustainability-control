@@ -11,8 +11,8 @@ service CrisisService {
 
 message CrisisRequest {
   repeated float kpi_sequence = 1;  // flattened (1, T, F)
-  int32 seq_len = 2;                // T
-  int32 feature_dim = 3;            // F
+  int32 seq_len = 2;                // T: field tag #2
+  int32 feature_dim = 3;            // F: field tag #3
 }
 
 message CrisisResponse {

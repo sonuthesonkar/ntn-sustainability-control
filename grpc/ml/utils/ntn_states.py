@@ -4,34 +4,39 @@
 # LICENSE file in the root directory of this source tree.           #
 #-------------------------------------------------------------------#
 import numpy as np
-from config import *
+from .config import *
+from .error_utils import handle_func_errors
 
 # =========================
-# NTN sustained logic
+# Logic for NTN state change
 # =========================
-def ntn_state_series(scores):
+@handle_func_errors
+def ntn_state_series(scores: list[float]):
     """
-    Recovery-aware NTN state machine
+    Computes a NTN state based on crisis score and sustained counts.
+    Assumption: scores in the input list follow the pattern, 
+                normal > full collapse > recovery
+    
     States:
-    0 = No NTN
-    1 = NTN Start
-    2 = NTN Cross
-    3 = Full Fallback
+    0: No NTN (Normal)
+    1: NTN Start (Initial Warning)
+    2: NTN Cross (Critical Warning)
+    3: Full Fallback (Full failure - requires crisis for sustained count)
     """
-    states = []
-    critical_count = 0
-    recovery_count = 0
-    state = 0
+
+    states = [] # Return ntn state for each score in scores[]
+    critical_count = 0  # Counter for critical state
+    recovery_count = 0  # Counter for recovery state
+    state = 0   # Initial state: No NTN
 
     for s in scores:
-        # --- Escalation logic ---
         if state < 3:
-            if s >= CRITICAL_THRESHOLD:
+            if s >= CRITICAL_THRESHOLD: # Start critical count
                 critical_count += 1
             else:
                 critical_count = 0
 
-            if critical_count >= CRITICAL_SUSTAIN_STEPS:
+            if critical_count >= CRITICAL_SUSTAIN_STEPS: # Full fallback
                 state = 3
                 recovery_count = 0
             elif s >= NTN_CROSS:
@@ -40,14 +45,13 @@ def ntn_state_series(scores):
                 state = 1
             else:
                 state = 0
-        # --- Recovery logic ---
-        else: # state == 3 (Full Fallback)
-            if s < NTN_CROSS:
+        else:
+            if s < NTN_CROSS:   # Start recovery count
                 recovery_count += 1
             else:
                 recovery_count = 0
 
-            if recovery_count >= 2: # Sustained recovery
+            if recovery_count >= 2: # Start recovery
                 state = 1 if s >= NTN_START else 0
                 critical_count = 0
 

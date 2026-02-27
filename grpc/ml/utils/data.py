@@ -6,11 +6,13 @@
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from config import SEQ_LEN
+from .config import SEQ_LEN
+from .error_utils import handle_class_errors
 
 # =========================
 # Synthetic data generation
 # =========================
+@handle_class_errors
 class CrisisTrajectoryGenerator:
     """
     Generates temporal KPI trajectories with a latent crisis score.
@@ -45,13 +47,28 @@ class CrisisTrajectoryGenerator:
         # [congestion, prb_util, traffic_load, ran_energy,
         # carbon_intensity, isac_quality, mobility_rate, emergency<0 or 1> ]
         
+        # Congestion: directly proportional to crisis
         congestion = np.clip(c + np.random.normal(0, 0.05), 0, 1)
+        
+        # PRB utilization: 40% normal utilization
         prb_util = np.clip(0.4 + 0.6 * c + np.random.normal(0, 0.05), 0, 1)
+        
+        # Traffic: 30% normal, steeper than prb (PRBs lag due to scheduling limits)
         traffic = np.clip(0.3 + 0.7 * c + np.random.normal(0, 0.05), 0, 1)
+        
+        # RAN energy: 20% normal, scales strongly with load
         ran_energy = np.clip(0.2 + 0.8 * c + np.random.normal(0, 0.05), 0, 1)
+        
+        # Carbon: tracks load but not 1:1
         carbon = np.clip(0.5 * c + np.random.normal(0, 0.05), 0, 1)
+        
+        # ISAC: Inverse to crisis, ISAC is sacrifices under stress
         isac_quality = np.clip(1.0 - c + np.random.normal(0, 0.05), 0, 1)
+        
+        # Mobility: Inverse to crisis, but degrades slower than sensing
         mobility = np.clip(1.0 - 0.8 * c + np.random.normal(0, 0.05), 0, 1)
+        
+        # Emergency: Not KPI, but a binary vlaue to indicate full failure or not
         emergency = 1.0 if c > 0.9 else 0.0
 
         return np.array([
@@ -79,6 +96,7 @@ class CrisisTrajectoryGenerator:
 # =========================
 # Dataset
 # =========================
+@handle_class_errors
 class CrisisDataset(Dataset):
     """
     Generates sample dataset.

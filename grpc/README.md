@@ -1,11 +1,14 @@
 # gRPC Inference Service
 
-This directory contains the C++ gRPC inference service and Python validation scripts for the temporal ONNX (GRU) sustainability model.
+This directory contains the C++ gRPC inference service and Python training & validation scripts for the temporal ONNX (GRU) sustainability model.
 
-The Python scripts allow independent validation of:
+The Python scripts allow:
 
-- ONNX model inference
-- gRPC transport correctness
+- Creation and training of GRU model (for predicting crisis score based on sustainability KPIs)
+- Export GRU model to ONNX
+- ONNX model parity check
+- Model inference and validation (for all, GRU, ONNX and gRPC)
+- gRPC transport correctness validation
 - End-to-end crisis score behavior
 
 This layer can be tested independently of the web control interface.
@@ -19,14 +22,15 @@ The gRPC service:
 - Loads the trained ONNX GRU model
 - Accepts a temporal input tensor of shape `(1, 60, 8)`
 - Returns sustainability crisis score
-- Applies deterministic NTN state transitions
 
-The Python validation script:
+The Python scripts:
 
-- Generates synthetic KPI sequences
+- Generates synthetic KPI sequences (for both training and validation)
+- Creates and trains the GRU model
+- Exports the GRU model to ONNX, and does parity check
+- Validates GRU and ONNX model
 - Sends inference requests to the gRPC server (default `localhost:50051`)
-- Plots a graph showing original and returned crisis scores 
-  (to compare how close the model prediction is)
+- Plots a graph showing original and returned crisis scores (to compare how close the model prediction is)
 
 ---
 
@@ -36,32 +40,63 @@ The Python validation script:
 - pip
 - Running gRPC service, and listening on port `50051`
 
-Install Python dependencies (from inside the `validation` directory):
+Install Python dependencies (from inside the `ml` directory):
 
 `pip install -r requirements.txt`
 
-Create protobuf helper python scripts:
+Create protobuf helper python scripts (required for grpc validation):
 
 `py -m grpc_tools.protoc -I../proto --python_out=. --grpc_python_out=. crisis.proto`
 
 Two python scripts (crisis_pb2.py, and crisis_pb2_grpc.py) should be there now in the 
-`validation` directory.
+`ml` directory.
+
+---
+
+## Model Training & Export (Optional)
+
+Pre-trained GRU model and the exported ONNX model, both are there in the `models` directory. <br/>
+But, still, if the GRU model needs to be (re)trained and/or (re)exported to ONNX, here's the sequence.
+
+From inside the `ml` directory:
+
+- `python a_train.py`
+- `python b_export_to_onnx.py`
+- `python c_onnx_parity_check.py`
+
+Expected behavior:
+- Parity check should be passed.
+- `models` directory should show the updated timestamps on the model and metadata files. 
 
 ---
 
 ## Starting the gRPC Service
 
+Run the pre-built images from the docker.
+
 From the project root:
 
 `docker compose -f docker-compose-prod.yml up -d grpc`
+
+OR
+
+Build and run the images from the source.
+
+`docker compose up --build -d`
+
+For more details on exact steps to build and run the services, refer to:
+
+[Run Services section in the main README](../README.md#run-services).
 
 ---
 
 ## Running the Validation Script
 
-From inside the `validation` directory:
+From inside the `ml` directory:
 
-`python validate_grpc.py`
+`python validate.py grpc`
+
+To validate the GRU or the ONNX model, just pass `gru`, or `onnx`, instead of `grpc`, in the above command.
 
 Expected behavior:
 
@@ -69,7 +104,7 @@ Expected behavior:
   along with NTN state changes at the bottom
 
 <p align="center">
-    <img src="validation/grpc_model_validation.webp" width="75%">
+    <img src="ml/validation_GRPC.webp" width="75%">
 </p>
 
 ---
@@ -126,9 +161,12 @@ This project utilizes the following open-source components:
 * **[ONNX Runtime](https://github.com)**: Licensed under the MIT License.
 * **[vcpkg](https://github.com)**: Licensed under the MIT License.
 
-#### Validation (Python Test Suite)
+#### Model Training & Validation (Python Suite)
 * **[grpcio](https://grpc.io)**: Licensed under Apache Software License.
 * **[grpcio-tools](https://grpc.io)**: Licensed under Apache Software License.
 * **[matplotlib](https://matplotlib.org)**: Licensed under Python Software Foundation License.
 * **[numpy](https://numpy.org)**: Licensed under BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0.
+* **[onnx](https://onnx.ai/)**: Licensed under Apache-2.0.
+* **[onnxruntime](https://onnxruntime.ai)**: Licensed under MIT License.
+* **[onnxscript](https://microsoft.github.io/onnxscript/)**: Licensed under MIT License.
 * **[torch](https://pytorch.org)**: Licensed under BSD-3-Clause.
