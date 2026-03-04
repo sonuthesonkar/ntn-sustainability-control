@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 # 1. Find vcpkg packages (gRPC/Protobuf)
 find_package(gRPC CONFIG REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 
 # 2. Point to the Official ONNX Runtime path
 set(ONNXRUNTIME_ROOT "/opt/onnxruntime")
@@ -44,4 +45,5 @@ target_link_libraries(crisis_server PRIVATE
     gRPC::grpc++
     protobuf::libprotobuf
     onnxruntime  # This will now find libonnxruntime.so in /opt/onnxruntime/lib
+    spdlog::spdlog
 )

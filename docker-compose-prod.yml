@@ -19,7 +19,7 @@ services:
   # --- gRPC Service ---
   grpc:
     # Pull the pre-compiled C++ gRPC logic from Docker Hub
-    image: sonusonkar/ntn-sustainability-control-grpc:v1.1.0
+    image: sonusonkar/ntn-sustainability-control-grpc:latest
     environment:
       # Ensure the system can find ONNX Runtime shared libraries for AI/ML inference
       - LD_LIBRARY_PATH=/opt/onnxruntime/lib
@@ -30,7 +30,7 @@ services:
   # --- Node.js Web Service ---
   web:
     # Pull the pre-built web application from Docker Hub
-    image: sonusonkar/ntn-sustainability-control-web:v1.0.0
+    image: sonusonkar/ntn-sustainability-control-web:latest
     environment:
       # Connection string for Node.js to reach the 'db' service
       DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}

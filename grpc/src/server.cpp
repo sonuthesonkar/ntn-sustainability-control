@@ -10,6 +10,8 @@
 #include <vector>
 #include <iostream>
 #include <string>
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/fmt.h>
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -36,13 +38,9 @@ public:
    * @param model_path The absolute or relative path to the .onnx file.
    */
   CrisisServiceImpl(const std::string& model_path)
-    : env(ORT_LOGGING_LEVEL_WARNING, "crisis"),
-      session(env, model_path.c_str(), Ort::SessionOptions{nullptr}) 
+    : env(ORT_LOGGING_LEVEL_WARNING, "ort_log"),
+      session(env, model_path.c_str(), CreateOptimizedOptions()) 
   {
-    Ort::SessionOptions opts;
-    opts.SetIntraOpNumThreads(1);
-    opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
-
     // FIX: Store the strings in std::string to own the memory
     Ort::AllocatorWithDefaultOptions allocator;
     auto in_ptr = session.GetInputNameAllocated(0, allocator);
@@ -51,9 +49,8 @@ public:
     input_name_str = in_ptr.get();
     output_name_str = out_ptr.get();
 
-    std::cout << "Model loaded: " << model_path 
-              << " | Input: " << input_name_str 
-              << " | Output: " << output_name_str << std::endl;
+    spdlog::info("Done | Inference engine ready | Model: {} | Input: {} | Output: {}",
+                  model_path, input_name_str, output_name_str);
   }
 
   /**
@@ -74,18 +71,19 @@ public:
                   CrisisResponse* res) override
   {
     try {
-        const int T = req->seq_len();
-        const int F = req->feature_dim();
-        const int expected_size = T * F;
+        const int64_t T = req->seq_len();
+        const int64_t F = req->feature_dim();
+        const int64_t expected_size = T * F;
 
         // 1. Validation + Logging
         if (req->kpi_sequence_size() != expected_size) {
-            std::cerr << "Invalid Input: Got " << req->kpi_sequence_size() 
-                      << " expected " << expected_size << std::endl;
-            return Status(grpc::StatusCode::INVALID_ARGUMENT, "Input size mismatch");
+          std::string errmsg = fmt::format("Error | Invalid kpi_sequence size | Got: {} | Expected: {}",
+                                            req->kpi_sequence_size(), expected_size);
+          spdlog::error(errmsg);  
+            return Status(grpc::StatusCode::INVALID_ARGUMENT, errmsg);
         }
 
-        std::array<int64_t, 3> shape{1, (int64_t)T, (int64_t)F};
+        std::array<int64_t, 3> shape{1, T, F};
 
         // 2. Wrap Tensor Creation
         Ort::Value input = Ort::Value::CreateTensor<float>(
@@ -118,15 +116,23 @@ public:
         return Status::OK;
 
     } catch (const Ort::Exception& e) {
-        std::cerr << "ONNX Error: " << e.what() << std::endl;
-        return Status(grpc::StatusCode::INTERNAL, e.what());
+        spdlog::critical("Fatal | ONNX Runtime Failed | {}", e.what());
+        return Status(grpc::StatusCode::INTERNAL, "ML Inference Failed");
     } catch (const std::exception& e) {
-        std::cerr << "Std Exception: " << e.what() << std::endl;
-        return Status(grpc::StatusCode::INTERNAL, "Internal C++ Server Error");
+        spdlog::critical("Fatal | Std C++ Exception | {}", e.what());
+        return Status(grpc::StatusCode::INTERNAL, "Service Unavailable");
     }
   }
 
 private:
+  // Static helper to configure options before session starts
+  static Ort::SessionOptions CreateOptimizedOptions() {
+    Ort::SessionOptions opts;
+    opts.SetIntraOpNumThreads(1); // Restrict threads
+    opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+    return opts;
+  }
+   
   Ort::Env env;
   Ort::Session session;
   Ort::MemoryInfo mem = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
@@ -160,16 +166,16 @@ int main(int argc, char** argv) {
     std::unique_ptr<Server> server(builder.BuildAndStart());
     
     if (!server) {
-        std::cerr << "Failed to start gRPC server! Check if port 50051 is in use." << std::endl;
+        spdlog::critical("Fatal | Failed to start gRPC server! Check if port 50051 is in use.");
         return 1;
     }
 
-    std::cout << "Crisis gRPC server listening on 0.0.0.0:50051" << std::endl;
+    spdlog::info("Done | Crisis gRPC server listening on 0.0.0.0:50051");
     server->Wait();
 
   } catch (const std::exception& e) {
     // Catch initialization errors (e.g. model file not found)
-    std::cerr << "FATAL ERROR DURING STARTUP: " << e.what() << std::endl;
+    spdlog::critical("Fatal | Startup failed | {}", e.what());
     return 1;
   }
 

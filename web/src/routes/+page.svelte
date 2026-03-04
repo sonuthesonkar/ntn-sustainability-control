@@ -253,7 +253,10 @@
 		display: grid;
 		/* Col 1: Left content | Col 2: Divider | Col 3: Right content */
 		grid-template-columns: 1.5fr auto 1fr; 
-		height: 100vh; /*not 100% */
+		height: 100%;
+    min-height: 680px;
+    width: 100%;
+    min-width: 1450px;
 		padding: 5px 20px;
 		box-sizing: border-box;
 	}
@@ -262,15 +265,15 @@
 		display: grid;
 		/* Row 1: Sliders | Row 2: Divider | Row 3: Graph */
 		grid-template-rows: 1fr auto 1.5fr;
-		height: 100%;
+  	height: 100%;
     min-height: 0;
+    gap: 0;
 	}
 
 	section, .right-col {
 		display: flex;
 		flex-direction: column;
-		padding: 10px;
-    min-height: 0;
+	  min-height: 0;
 	}
 
 	.label {
@@ -278,8 +281,7 @@
     grid-template-columns: 1fr 1fr 1fr;
     align-items: center;
     width: 100%;
-    margin: 0 0 15px 0;
-		font-size: 0.75rem;
+    font-size: 0.75rem;
 		font-weight: 600;
 		color: #777;
 		letter-spacing: 0.05em;
@@ -369,13 +371,20 @@
 		font-weight: 500;
 		color: #64748b;
 	}
+  
+  .graph-section {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
 
   .content-area {
 		flex: 1;
 		display: flex;
 		justify-content: center;
 		align-items: center;
-	}
+  }
 </style>
 
 <div class="dashboard">

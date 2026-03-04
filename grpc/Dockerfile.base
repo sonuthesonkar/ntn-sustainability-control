@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /opt
 COPY LICENSE .
 RUN git clone https://github.com/microsoft/vcpkg.git && ./vcpkg/bootstrap-vcpkg.sh
-RUN /opt/vcpkg/vcpkg install grpc protobuf nlohmann-json --triplet x64-linux --clean-after-build
+RUN /opt/vcpkg/vcpkg install grpc protobuf nlohmann-json spdlog --triplet x64-linux --clean-after-build
 
 # 3. Download Official ONNX Runtime Binaries (Instant)
 # Using v1.23.2 (Current Stable)
