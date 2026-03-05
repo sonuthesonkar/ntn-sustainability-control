@@ -395,7 +395,7 @@
         <div class="label-left">
           {#if mode === 'observer'}
             <span class="mode">Observer</span>
-            <span>(view-only)</span>
+            <span>(View Only)</span>
           {:else}
             <span class="mode">Controller</span>
             <button on:click={releaseLock}>

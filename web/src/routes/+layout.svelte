@@ -51,7 +51,7 @@
   .text-row {
     display: flex;
     align-items: baseline;
-    gap: 8px; /* Space between title, line, and copyright */
+    gap: 8px; /* Space between title, and copyright */
   }
 
   .header h1 {

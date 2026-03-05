@@ -25,30 +25,36 @@ export const load: PageServerLoad = async ({ cookies }) => {
     let mode = 'observer';
     let owner = '';
 
-    if (!clientId) { // Set cookie
+    if (!clientId) { // Set cookie and update db
       clientId = crypto.randomUUID();
       cookies.set('client_id', clientId, {
         path: '/',
         httponly: true,
         sameSite: 'strict',
-        maxAge: 60 * 60 * 1 // One hour
+        maxAge: 60 * 60 * 1, // One hour
+        secure: false // Required to work with ipaddress
       });
+
+      const res = await db.query(`
+        INSERT INTO controller (id, owner_id, acquired_at)
+        VALUES (1, $1, now())
+        ON CONFLICT (id) DO UPDATE 
+        SET 
+          owner_id = EXCLUDED.owner_id,
+          acquired_at = EXCLUDED.acquired_at
+        WHERE controller.owner_id IS NULL 
+          OR controller.acquired_at < now() - INTERVAL '1 hour'
+          OR controller.owner_id = EXCLUDED.owner_id
+        RETURNING owner_id;
+      `, [clientId]); // Upsert client id
+
+      owner = res.rows[0]?.owner_id;
+    } else {
+      owner = await db.query(
+        'SELECT owner_id FROM controller WHERE id = 1'
+      );
     }
 
-    const res = await db.query(`
-      INSERT INTO controller (id, owner_id, acquired_at)
-      VALUES (1, $1, now())
-      ON CONFLICT (id) DO UPDATE 
-      SET 
-        owner_id = EXCLUDED.owner_id,
-        acquired_at = EXCLUDED.acquired_at
-      WHERE controller.owner_id IS NULL 
-        OR controller.acquired_at < now() - INTERVAL '1 hour'
-        OR controller.owner_id = EXCLUDED.owner_id
-      RETURNING owner_id;
-    `, [clientId]); // Upsert client id
-
-    owner = res.rows[0]?.owner_id;
     mode = (owner === clientId) ? 'controller' : 'observer';
     const seq_len = 60;
     const history = await getPaddedHistory(seq_len);
