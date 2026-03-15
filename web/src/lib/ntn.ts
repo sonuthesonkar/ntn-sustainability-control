@@ -15,7 +15,8 @@
 export function computeNTN(ntn_state: number, critical_count: number, recovery_count: number, score: number) {
   try {
     let state = ntn_state, cc = critical_count, rc = recovery_count, s = score;
-    let ntn_start = 0.6, ntn_cross = 0.8, critical_threshold = 0.9, critical_sustain_steps = 3;
+    let ntn_start = 0.6, ntn_cross = 0.8, critical_threshold = 0.9; 
+    let critical_sustain_steps = 3, recovery_sustain_steps = 2;
     
     if (state < 3) {
       cc = s >= critical_threshold ? cc + 1 : 0;
@@ -26,7 +27,7 @@ export function computeNTN(ntn_state: number, critical_count: number, recovery_c
       else state = 0;
     } else {
       rc = s < ntn_cross ? rc + 1 : 0;
-      if (rc >= 2) {
+      if (rc >= recovery_sustain_steps) {
         state = s >= ntn_start ? 1 : 0;
         cc = 0;
       }

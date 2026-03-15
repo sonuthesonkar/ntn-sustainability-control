@@ -4,6 +4,7 @@
 [![C++](https://img.shields.io/badge/C++-Inference-black)]()
 [![ONNX](https://img.shields.io/badge/ONNX-Temporal_Model-purple)]()
 [![License](https://img.shields.io/badge/License-MIT-green)]()
+[![CI](https://github.com/sonuthesonkar/ntn-sustainability-control/actions/workflows/test.yml/badge.svg)](https://github.com/sonuthesonkar/ntn-sustainability-control/actions)
 
 A distributed control-layer prototype exploring a contrarian premise:
 
@@ -126,25 +127,38 @@ NTN acts as:
     `DB_NAME=<db-name>`<br/>
     `DB_PASSWORD=<password>`
 
-2. Create `password.txt` file:<br/>
-    `<password>`<br/>
-    Note: this should be same as is given in the `.env` file.
-
-3. Run pre-built images from docker hub:<br/>
+2. Run pre-built images from docker hub:<br/>
     `docker compose -f docker-compose-prod.yml up -d`
 
-4. Or build from source:
+3. Or build from source, and launch:
 
-    4.1 Build pre-requisites first:<br/>
-    `docker compose build vcpkg-base`
-
-    4.2 Build and start all services:<br/>
     `docker compose up --build -d`
 
-5. Web UI available at:<br/>
+4. Web UI available at:<br/>
 `http://localhost:3000`
 
 No host toolchain required.
+
+---
+
+## Automated Tests (Optional)
+
+From the `playwright` directory,<br/>
+1. Install node.js:
+
+    `winget install OpenJS.NodeJS.LTS`
+
+2. Install dependencies:
+
+    `npm install`
+
+3. Install browsers and their system requirements:
+
+    `npx playwright install --with-deps`
+
+4. Execute tests:
+
+    `npm run test:e2e`
 
 ---
 
@@ -183,5 +197,5 @@ This project utilizes the following open-source components:
 * **[TimescaleDB](https://www.timescale.com)**: Licensed under the Apache License 2.0 / Timescale License.
 * **[gRPC](https://github.com)**: Licensed under the Apache License 2.0.
 * **[ONNX Runtime](https://github.com)**: Licensed under the MIT License.
-* **[vcpkg](https://github.com)**: Licensed under the MIT License.
 * **[Svelte](https://github.com)**: Licensed under the MIT License.
+* **[Playwright](https://github.com)**: Licensed under the Apache License 2.0.

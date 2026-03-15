@@ -2,33 +2,26 @@ services:
   # --- Database layer ---
   db:
     # TimescaleDB: Postgres optimized for time-series data
-    image: timescale/timescaledb:latest-pg15
-    environment:
-      POSTGRES_USER: ${DB_USER}
-      # Uses Docker Secrets for the password to avoid plain-text env variables
-      POSTGRES_PASSWORD_FILE: /run/secrets/db_pass
-      POSTGRES_DB: ${DB_NAME}
-    secrets:
-      - db_pass
-    volumes:
-      - ./LICENSE:/LICENSE:ro # Mount license file as read-only
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql # Auto-runs schema on startup
-      - pg_data:/var/lib/postgresql/data # Persistent storage for DB data
-  
-  # --- Build dependency layer ---
-  vcpkg-base:
-    # Pre-builds C++ dependencies to speed up the main gRPC build
     build:
       context: .
-      dockerfile: grpc/Dockerfile.base
-    image: vcpkg-base:latest
-
+      dockerfile_inline: |
+        FROM timescale/timescaledb:latest-pg18
+        # This copies the real file from host into the image during the build
+        COPY ./db/init.sql /docker-entrypoint-initdb.d/init.sql
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - ./LICENSE:/LICENSE:ro # Mount license file as read-only
+      - pg_data:/var/lib/postgresql # Persistent storage for DB data (note: path changed from pg18 onwards)
+  
   # --- gRPC service layer ---
   grpc:
+    image: ${DOCKER_USER:-local}/ntn-sustainability-control-grpc:${GRPC_VER:-0}-${IMAGE_TAG:-latest}-${GRPC_BLD_MSG:-dev}
     build:
       context: .
       dockerfile: grpc/Dockerfile
-    depends_on: [vcpkg-base] # Ensures the base image exists before building
     environment:
       - LD_LIBRARY_PATH=/opt/onnxruntime/lib # Required for ONNX runtime linkage
     ports:
@@ -36,6 +29,7 @@ services:
 
   # --- Web GUI layer ---
   web:
+    image: ${DOCKER_USER:-local}/ntn-sustainability-control-web:${WEB_VER:-0}-${IMAGE_TAG:-latest}-${WEB_BLD_MSG:-dev}
     build:
       context: .
       dockerfile: web/Dockerfile
@@ -62,7 +56,3 @@ networks:
 
 volumes:
   pg_data: # Named volume for database persistence
-
-secrets:
-  db_pass:
-    file: ./password.txt # Source file for the database password secret

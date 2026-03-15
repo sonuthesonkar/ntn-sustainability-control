@@ -1,0 +1,69 @@
+# .github/workflows/test.yml
+name: Run-Tests
+
+on:
+  workflow_call:
+    # Define the "Receivers" (Inputs)
+    inputs:
+      IMAGE_TAG:
+        required: true
+        type: string
+      GRPC_VER:
+        required: true
+        type: string
+      GRPC_BLD_MSG:
+        required: true
+        type: string
+      WEB_VER:
+        required: true
+        type: string
+      WEB_BLD_MSG:
+        required: true
+        type: string
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    env:
+      # Map Inputs to Environment Variables for Docker Compose
+      DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
+      IMAGE_TAG: ${{ inputs.IMAGE_TAG }}
+      GRPC_VER: ${{ inputs.GRPC_VER }}
+      GRPC_BLD_MSG: ${{ inputs.GRPC_BLD_MSG }}
+      WEB_VER: ${{ inputs.WEB_VER }}
+      WEB_BLD_MSG: ${{ inputs.WEB_BLD_MSG }}
+      # Database secrets inherited via 'secrets: inherit'
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_NAME: ${{ secrets.DB_NAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Stack and Pull Images
+        run: |
+          # Docker Compose uses the env vars above to pull the EXACT images built in Job 1
+          docker compose up -d --wait
+
+      - name: Run Playwright Tests
+        working-directory: playwright
+        run: |
+          # Install dependencies on the fresh runner VM
+          echo "Installing dependencies in silent mode..."
+          npm install -s
+          
+          echo "Installing browsers and their system requirements in silent mode..."
+          npx playwright install --with-deps > /dev/null
+          
+          # Run tests using the config
+          echo "Running tests with relaxed timeout (90 secs) for this pipeline"
+          npx playwright test --timeout 90000
+        env:
+          BASE_URL: http://localhost:3000
+
+  # Trigger Publish regardless of test result
+  trigger-publish:
+    needs: integration-tests
+    if: always()
+    uses: ./.github/workflows/publish.yml
+    secrets: inherit

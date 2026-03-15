@@ -1,5 +1,5 @@
+.secrets
 .env
-password.txt
 .git
 __pycache__/
 *.pyc
@@ -9,3 +9,13 @@ logs/
 *.jpg
 *.jpeg
 *.png
+node_modules/
+package-lock.json
+artifacts/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+playwright/.auth/

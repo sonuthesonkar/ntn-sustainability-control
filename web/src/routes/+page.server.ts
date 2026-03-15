@@ -24,6 +24,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
     let clientId = cookies.get('client_id');
     let mode = 'observer';
     let owner = '';
+    let qres;
 
     if (!clientId) { // Set cookie and update db
       clientId = crypto.randomUUID();
@@ -35,7 +36,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
         secure: false // Required to work with ipaddress
       });
 
-      const res = await db.query(`
+      qres = await db.query(`
         INSERT INTO controller (id, owner_id, acquired_at)
         VALUES (1, $1, now())
         ON CONFLICT (id) DO UPDATE 
@@ -47,14 +48,13 @@ export const load: PageServerLoad = async ({ cookies }) => {
           OR controller.owner_id = EXCLUDED.owner_id
         RETURNING owner_id;
       `, [clientId]); // Upsert client id
-
-      owner = res.rows[0]?.owner_id;
     } else {
-      owner = await db.query(
+      qres = await db.query(
         'SELECT owner_id FROM controller WHERE id = 1'
       );
     }
 
+    owner = qres.rows[0]?.owner_id;
     mode = (owner === clientId) ? 'controller' : 'observer';
     const seq_len = 60;
     const history = await getPaddedHistory(seq_len);

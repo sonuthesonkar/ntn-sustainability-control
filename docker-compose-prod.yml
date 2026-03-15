@@ -1,19 +1,20 @@
 services:
   # --- TimescaleDB (PostgreSQL with Time-Series support) ---
   db:
-    image: timescale/timescaledb:latest-pg15
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM timescale/timescaledb:latest-pg18
+        # This copies the real file from host into the image during the build
+        # Required to auto-run the sql script on initial database creation
+        COPY ./db/init.sql /docker-entrypoint-initdb.d/init.sql
     environment:
       POSTGRES_USER: ${DB_USER}
-      # Read the DB password from the Docker secret mount point
-      POSTGRES_PASSWORD_FILE: /run/secrets/db_pass
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-    secrets:
-      - db_pass
     volumes:
-      # Auto-run SQL scripts on initial database creation
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
       # Named volume to ensure data survives container restarts/deletions
-      - pg_data:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql # Persistent storage for DB data (note: path changed from pg18 onwards)
     restart: always
 
   # --- gRPC Service ---
@@ -55,9 +56,3 @@ networks:
 # --- Persistent storage ---
 volumes:
   pg_data: # Database storage volume
-
-# --- Sensitive data handling ---
-secrets:
-  db_pass:
-    # Loads the password from a local text file
-    file: ./password.txt

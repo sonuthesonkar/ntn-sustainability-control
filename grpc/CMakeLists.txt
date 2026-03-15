@@ -2,23 +2,25 @@ cmake_minimum_required(VERSION 3.26)
 project(crisis_grpc LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 1. Find vcpkg packages (gRPC/Protobuf)
-find_package(gRPC CONFIG REQUIRED)
-find_package(Protobuf CONFIG REQUIRED)
-find_package(spdlog CONFIG REQUIRED)
+# 1. Dependencies
+find_package(Protobuf REQUIRED)
+find_package(gRPC REQUIRED)
+find_package(spdlog REQUIRED)
 
-# 2. Point to the Official ONNX Runtime path
-set(ONNXRUNTIME_ROOT "/opt/onnxruntime")
-include_directories("${ONNXRUNTIME_ROOT}/include")
-link_directories("${ONNXRUNTIME_ROOT}/lib")
+# Find gRPC plugin binary - standard approach for system-installed gRPC
+find_program(GRPC_CPP_PLUGIN_EXECUTABLE grpc_cpp_plugin REQUIRED)
 
-# 3. Executable and Generation
+# 2. ONNX Runtime Configuration
+# Avoid link_directories; point to the specific library for better target hygiene
+set(ONNXRUNTIME_ROOT "/opt/onnxruntime" CACHE PATH "Path to ONNX Runtime root")
+find_library(ONNXRUNTIME_LIB onnxruntime PATHS "${ONNXRUNTIME_ROOT}/lib" REQUIRED)
+
+# 3. Code Generation & Executable
 set(PROTO_SRC "${CMAKE_CURRENT_SOURCE_DIR}/proto/crisis.proto")
 
-add_executable(crisis_server
-  src/server.cpp
-)
+add_executable(crisis_server src/server.cpp)
 
 # Generate standard Protobuf files (.pb.h / .pb.cc)
 protobuf_generate(
@@ -35,15 +37,20 @@ protobuf_generate(
     IMPORT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/proto"
     LANGUAGE grpc
     GENERATE_EXTENSIONS .grpc.pb.h .grpc.pb.cc
-    PLUGIN "protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
+    PLUGIN "protoc-gen-grpc=${GRPC_CPP_PLUGIN_EXECUTABLE}"
 )
 
-# 4. Linking
-target_include_directories(crisis_server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+# 4. Target Properties
+target_include_directories(crisis_server PRIVATE 
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_BINARY_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/proto"
+    "${ONNXRUNTIME_ROOT}/include"
+)
 
 target_link_libraries(crisis_server PRIVATE
     gRPC::grpc++
     protobuf::libprotobuf
-    onnxruntime  # This will now find libonnxruntime.so in /opt/onnxruntime/lib
+    ${ONNXRUNTIME_LIB}
     spdlog::spdlog
 )
