@@ -1,7 +1,10 @@
-name: Build-and-Push
+name: CI
 on:
   push:
     branches: [ main ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Opt into Node.js 24
 
 jobs:
   build:
@@ -20,8 +23,8 @@ jobs:
         id: vars
         run: |
           echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "GRPC_VER=v1.1.1" >> $GITHUB_OUTPUT
-          echo "WEB_VER=v1.0.2" >> $GITHUB_OUTPUT
+          echo "GRPC_VER=v1.2.0" >> $GITHUB_OUTPUT
+          echo "WEB_VER=v1.1.0" >> $GITHUB_OUTPUT
           echo "GRPC_BLD_MSG=ci-build" >> $GITHUB_OUTPUT
           echo "WEB_BLD_MSG=ci-build" >> $GITHUB_OUTPUT
 
