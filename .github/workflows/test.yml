@@ -1,22 +1,13 @@
-name: Run-Tests
+name: Test & Publish
 
 on:
   workflow_call:
     # Define the "Receivers" (Inputs)
     inputs:
-      IMAGE_TAG:
+      GRPC_DIGEST:
         required: true
         type: string
-      GRPC_VER:
-        required: true
-        type: string
-      GRPC_BLD_MSG:
-        required: true
-        type: string
-      WEB_VER:
-        required: true
-        type: string
-      WEB_BLD_MSG:
+      WEB_DIGEST:
         required: true
         type: string
 
@@ -24,17 +15,14 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Opt into Node.js 24
 
 jobs:
-  integration-tests:
+  test-and-upload-reports:
     runs-on: ubuntu-latest
     env:
       # Map Inputs to Environment Variables for Docker Compose
+      GRPC_DIGEST: ${{ inputs.GRPC_DIGEST }}
+      WEB_DIGEST: ${{ inputs.WEB_DIGEST }}
+      # Secrets inherited via 'secrets: inherit'
       DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
-      IMAGE_TAG: ${{ inputs.IMAGE_TAG }}
-      GRPC_VER: ${{ inputs.GRPC_VER }}
-      GRPC_BLD_MSG: ${{ inputs.GRPC_BLD_MSG }}
-      WEB_VER: ${{ inputs.WEB_VER }}
-      WEB_BLD_MSG: ${{ inputs.WEB_BLD_MSG }}
-      # Database secrets inherited via 'secrets: inherit'
       DB_USER: ${{ secrets.DB_USER }}
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
@@ -44,8 +32,25 @@ jobs:
 
       - name: Start Stack and Pull Images
         run: |
-          # Docker Compose uses the env vars above to pull the EXACT images built in Job 1
-          docker compose up -d --wait
+          echo "Pulling images from Docker Hub..."
+          docker compose -f ./docker-compose-prod.yml pull
+          
+          echo "Verifying gRPC image digest..."
+          PULLED_GRPC_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${DOCKER_USER}/ntn-sustainability-control-grpc:latest | cut -d'@' -f2)
+          if [ "$PULLED_GRPC_DIGEST" != "$GRPC_DIGEST" ]; then
+            echo "ERROR: gRPC digest mismatch! Expected $GRPC_DIGEST but got $PULLED_GRPC_DIGEST"
+            exit 1
+          fi
+
+          echo "Verifying Web image digest..."
+          PULLED_WEB_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${DOCKER_USER}/ntn-sustainability-control-web:latest | cut -d'@' -f2)
+          if [ "$PULLED_WEB_DIGEST" != "$WEB_DIGEST" ]; then
+            echo "ERROR: Web digest mismatch! Expected $WEB_DIGEST but got $PULLED_WEB_DIGEST"
+            exit 1
+          fi
+          
+          echo "Starting stack..."
+          docker compose -f ./docker-compose-prod.yml up -d --wait
 
       - name: Run Playwright Tests
         working-directory: playwright
@@ -63,9 +68,13 @@ jobs:
         env:
           BASE_URL: http://localhost:3000
 
-  # Trigger Publish regardless of test result
-  trigger-publish:
-    needs: integration-tests
-    if: always()
-    uses: ./.github/workflows/publish.yml
-    secrets: inherit
+      - name: Upload Playwright Report
+        if: always()  # Publish reports even on failure
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report
+          path: ./playwright/playwright-report # Report location 
+          retention-days: 30
+
+      - name: Final Status Notification
+        run: echo "Tests finished and results uploaded."

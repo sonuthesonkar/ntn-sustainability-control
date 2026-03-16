@@ -9,13 +9,15 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Add permissions required for artifact attestations
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
     outputs:
       # Map step outputs to job outputs for the next job
-      IMAGE_TAG: ${{ steps.vars.outputs.IMAGE_TAG }}
-      GRPC_VER: ${{ steps.vars.outputs.GRPC_VER }}
-      GRPC_BLD_MSG: ${{ steps.vars.outputs.GRPC_BLD_MSG }}
-      WEB_VER: ${{ steps.vars.outputs.WEB_VER }}
-      WEB_BLD_MSG: ${{ steps.vars.outputs.WEB_BLD_MSG }}
+      GRPC_DIGEST: ${{ steps.capture-digests.outputs.GRPC_DIGEST }}
+      WEB_DIGEST: ${{ steps.capture-digests.outputs.WEB_DIGEST }}
     steps:
       - uses: actions/checkout@v6
       
@@ -63,15 +65,36 @@ jobs:
           docker push ${DOCKER_USER}/ntn-sustainability-control-grpc -a
           docker push ${DOCKER_USER}/ntn-sustainability-control-web -a
 
+      - name: Capture and Output Digests
+        id: capture-digests
+        run: |
+          # Grab the digest of the 'latest' tag just pushed
+          GRPC_SHA=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc:latest | cut -d'@' -f2)
+          WEB_SHA=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web:latest | cut -d'@' -f2)
+          
+          echo "GRPC_DIGEST=$GRPC_SHA" >> $GITHUB_OUTPUT
+          echo "WEB_DIGEST=$WEB_SHA" >> $GITHUB_OUTPUT
+
+      - name: Attest gRPC Image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: index.docker.io/${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc
+          subject-digest: ${{ steps.capture-digests.outputs.GRPC_DIGEST }}
+          push-to-registry: false # Only creates the record in GitHub UI for Docker Hub images
+
+      - name: Attest Web Image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: index.docker.io/${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web
+          subject-digest: ${{ steps.capture-digests.outputs.WEB_DIGEST }}
+          push-to-registry: false
+
   # Trigger the Test Workflow after Build completes
   trigger-tests:
     needs: build
     uses: ./.github/workflows/test.yml
     with:
       # Pass the outputs from 'build' into 'test'
-      IMAGE_TAG: ${{ needs.build.outputs.IMAGE_TAG }}
-      GRPC_VER: ${{ needs.build.outputs.GRPC_VER }}
-      GRPC_BLD_MSG: ${{ needs.build.outputs.GRPC_BLD_MSG }}
-      WEB_VER: ${{ needs.build.outputs.WEB_VER }}
-      WEB_BLD_MSG: ${{ needs.build.outputs.WEB_BLD_MSG }}
+      GRPC_DIGEST: ${{ needs.build.outputs.GRPC_DIGEST }}
+      WEB_DIGEST: ${{ needs.build.outputs.WEB_DIGEST }}
     secrets: inherit
