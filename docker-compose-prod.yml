@@ -42,7 +42,7 @@ services:
     ports:
       - "3000:3000"
     # Executes the compiled Node.js entry point
-    command: node build/index.js
+    command: ["build/index.js"]
     restart: always
 
 # --- Network configuration ---

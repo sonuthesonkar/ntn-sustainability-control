@@ -1,67 +1,76 @@
 # --- STAGE 1: BUILD ---
-FROM ubuntu:24.04 AS builder
+FROM debian:12-slim AS builder
 
-# 1.1 Install Build Tools & Dev Dependencies
+# Install Build Tools & Dev Dependencies
 # Combined into one RUN to reduce layer overhead
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    cmake \
     ca-certificates \
+    libc-ares-dev \
     libgrpc++-dev \
     libprotobuf-dev \
+    libre2-dev \
     libspdlog-dev \
+    libssl-dev \
     nlohmann-json3-dev \
-    pkg-config \
-    protobuf-compiler \
+    pkg-config protobuf-compiler \
     protobuf-compiler-grpc \
     wget \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 1.2 Download ONNX Runtime (v1.23.2)
+# Install modern cmake
+RUN wget -qO- https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.tar.gz | \
+    tar --strip-components=1 -xz -C /usr/local
+
+# Download ONNX Runtime
 WORKDIR /opt
 RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz && \
-    tar -xzf onnxruntime-linux-x64-1.23.2.tgz && \
-    mv onnxruntime-linux-x64-1.23.2 onnxruntime && \
-    rm onnxruntime-linux-x64-1.23.2.tgz
+    tar -xzf onnxruntime-linux-x64-1.23.2.tgz && mv onnxruntime-linux-x64-1.23.2 onnxruntime
 
-# 1.3 Build the Application
+# Build App
 WORKDIR /app
 COPY grpc/ ./grpc/
-
-# Ensure build directory is clean and compile
-# Note: Pointing to /opt/onnxruntime is handled in CMakeLists.txt
-RUN cmake -B build -S ./grpc \
-    -DCMAKE_BUILD_TYPE=Release && \
+RUN cmake -B build -S ./grpc -DCMAKE_BUILD_TYPE=Release && \
     cmake --build build --parallel $(nproc)
 
-# --- STAGE 2: RUNTIME (The Lean Image) ---
-FROM ubuntu:24.04
-# Metadata for Docker Hub
+# --- STAGE 2: RUNTIME (0 Vulnerabilities) ---
+FROM gcr.io/distroless/cc-debian12
+# Metadata for Docker Hub / GitHub
+LABEL org.opencontainers.image.description="gRPC Service to infer crisis score from sustainability KPIs"
+LABEL org.opencontainers.image.version="${GRPC_VER}-${IMAGE_TAG}-${GRPC_BLD_MSG}"
 LABEL org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app
-COPY LICENSE .
-# 2.1 Install specific Shared Libraries (Noble versions)
-# t64 suffix is required for Ubuntu 24.04 (Noble)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgrpc++1.51t64 \
-    libprotobuf32t64 \
-    libspdlog1.12 \
-    libstdc++6 \
-    && rm -rf /var/lib/apt/lists/*
 
-# 2.2 Copy dependencies and binary from builder
-COPY --from=builder /opt/onnxruntime/lib /opt/onnxruntime/lib
+# Copy ALL dependencies (found by ldd)
+# Using wildcards to catch all the libabsl, libgrpc, libssl, etc.
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libgrpc*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libprotobuf.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libspdlog.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libabsl_*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libfmt.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libupb.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libcrypto.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libssl.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libcares.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libaddress_sorting.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libre2.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libgpr.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /lib/x86_64-linux-gnu/libz.so* /lib/x86_64-linux-gnu/
+# FIX: Copy libonnxruntime directly into the main library path - required
+COPY --from=builder /opt/onnxruntime/lib/libonnxruntime.so* /usr/lib/x86_64-linux-gnu/
+
+
+# Copy App
 COPY --from=builder /app/build/crisis_server .
 COPY --from=builder /app/grpc/models/* ./
 
-# 2.3 Environment & Execution
-# Ensure the dynamic loader finds libonnxruntime.so
-ENV LD_LIBRARY_PATH="/opt/onnxruntime/lib"
+# Simplified LD_LIBRARY_PATH as everything is now in standard locations
+ENV LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu"
 
+# Open port
 EXPOSE 50051
 
-# Use JSON syntax for CMD to handle signals (SIGTERM) correctly
-ENTRYPOINT ["./crisis_server"]
-CMD ["./crisis_gru.onnx"]
+# Launch
+ENTRYPOINT ["./crisis_server", "./crisis_gru.onnx"]

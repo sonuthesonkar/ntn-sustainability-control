@@ -11,6 +11,10 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+  security-events: write
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Opt into Node.js 24
 
@@ -30,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Start Stack and Pull Images
+      - name: Pull Images, Check Digest, and Start Stack
         run: |
           echo "Pulling images from Docker Hub..."
           docker compose -f ./docker-compose-prod.yml pull
@@ -52,6 +56,29 @@ jobs:
           echo "Starting stack..."
           docker compose -f ./docker-compose-prod.yml up -d --wait
 
+      - name: Docker Scout - Scan GRPC
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          # Use the specific SHA tag just verified
+          image: ${DOCKER_USER}/ntn-sustainability-control-grpc@$GRPC_DIGEST
+          sarif-file: grpc-scout.sarif
+          exit-code: false # Don't block Playwright tests
+
+      - name: Docker Scout - Scan Web
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: ${DOCKER_USER}/ntn-sustainability-control-web@$WEB_DIGEST
+          sarif-file: web-scout.sarif
+          exit-code: false
+
+      - name: Upload Scan Results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() # Upload even if previous steps failed
+        with:
+          sarif_file: .
+      
       - name: Run Playwright Tests
         working-directory: playwright
         run: |

@@ -10,7 +10,6 @@ logs/
 *.jpeg
 *.png
 node_modules/
-package-lock.json
 artifacts/
 
 # Playwright

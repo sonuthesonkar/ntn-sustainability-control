@@ -21,6 +21,11 @@ services:
     image: ${DOCKER_USER:-local}/ntn-sustainability-control-grpc:${GRPC_VER:-0}-${IMAGE_TAG:-latest}-${GRPC_BLD_MSG:-dev}
     build:
       context: .
+      args:
+        # Pass verion to dockerfile
+        - GRPC_VER=${GRPC_VER:-0}
+        - IMAGE_TAG=${IMAGE_TAG:-latest}
+        - GRPC_BLD_MSG=${GRPC_BLD_MSG:-dev}
       dockerfile: grpc/Dockerfile
     environment:
       - LD_LIBRARY_PATH=/opt/onnxruntime/lib # Required for ONNX runtime linkage
@@ -32,6 +37,11 @@ services:
     image: ${DOCKER_USER:-local}/ntn-sustainability-control-web:${WEB_VER:-0}-${IMAGE_TAG:-latest}-${WEB_BLD_MSG:-dev}
     build:
       context: .
+      args:
+        # Pass verion to dockerfile
+        - WEB_VER=${WEB_VER:-0}
+        - IMAGE_TAG=${IMAGE_TAG:-latest}
+        - WEB_BLD_MSG=${WEB_BLD_MSG:-dev}
       dockerfile: web/Dockerfile
     environment:
       # Direct connection string for the Node.js application
@@ -41,10 +51,8 @@ services:
     ports:
       - "3000:3000" # Main web traffic
       - "9229:9229" # Node.js debugging port
-    command: >
-      sh -c "node
-      ${DEBUG:+--inspect=0.0.0.0:9229}
-      build/index.js"
+    command: ["build/index.js"]                             # Comment for debug
+    # command: ["--inspect=0.0.0.0:9229", "build/index.js"] # Uncomment for debug
 
 # --- Network and storage config ---
 networks:
