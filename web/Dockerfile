@@ -19,6 +19,11 @@ RUN npm prune --production
 
 # --- STAGE 2: RUNTIME (0 Vulnerabilities) ---
 FROM gcr.io/distroless/nodejs20-debian12
+# Required for versioning label
+ARG WEB_VER=0
+ARG IMAGE_TAG=latest
+ARG WEB_BLD_MSG=dev
+
 # Metadata for Docker Hub / GitHub
 LABEL org.opencontainers.image.description="NTN Sustainability Control - Web GUI"
 LABEL org.opencontainers.image.version="${WEB_VER}-${IMAGE_TAG}-${WEB_BLD_MSG}"

@@ -36,6 +36,11 @@ RUN cmake -B build -S ./grpc -DCMAKE_BUILD_TYPE=Release && \
 
 # --- STAGE 2: RUNTIME (0 Vulnerabilities) ---
 FROM gcr.io/distroless/cc-debian12
+# Required for versioning label
+ARG GRPC_VER=0
+ARG IMAGE_TAG=latest
+ARG GRPC_BLD_MSG=dev
+
 # Metadata for Docker Hub / GitHub
 LABEL org.opencontainers.image.description="gRPC Service to infer crisis score from sustainability KPIs"
 LABEL org.opencontainers.image.version="${GRPC_VER}-${IMAGE_TAG}-${GRPC_BLD_MSG}"

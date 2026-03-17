@@ -63,7 +63,9 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Docker Scout - Scan GRPC
+        id: grpc-scout
         uses: docker/scout-action@v1
+        continue-on-error: true
         with:
           command: cves
           # Use the specific SHA tag just verified
@@ -71,19 +73,29 @@ jobs:
           sarif-file: grpc-scout.sarif
           exit-code: false # Don't block Playwright tests
 
+      - name: Upload GRPC Scan Results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.grpc-scout.outcome == 'success' # Upload even if previous step found vulnerabilities
+        with:
+          sarif_file: grpc-scout.sarif
+          category: grpc-sarif
+
       - name: Docker Scout - Scan Web
+        id: web-scout
         uses: docker/scout-action@v1
+        continue-on-error: true
         with:
           command: cves
           image: ${{ env.DOCKER_USER }}/ntn-sustainability-control-web@${{ env.WEB_DIGEST }}
           sarif-file: web-scout.sarif
           exit-code: false
 
-      - name: Upload Scan Results
+      - name: Upload Web Scan Results
         uses: github/codeql-action/upload-sarif@v4
-        if: always() # Upload even if previous steps failed
+        if: always() && steps.web-scout.outcome == 'success' # Upload even if previous step found vulnerabilities
         with:
-          sarif_file: .
+          sarif_file: web-scout.sarif
+          category: web-sarif
       
       - name: Run Playwright Tests
         working-directory: playwright
