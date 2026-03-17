@@ -92,6 +92,9 @@ jobs:
   # Trigger the Test Workflow after Build completes
   trigger-tests:
     needs: build
+    permissions:
+      security-events: write
+      contents: read
     uses: ./.github/workflows/test.yml
     with:
       # Pass the outputs from 'build' into 'test'
