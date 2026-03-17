@@ -75,7 +75,7 @@ jobs:
         uses: docker/scout-action@v1
         with:
           command: cves
-          image: ${{ env.DOCKER_USER }}/ntn-sustainability-control-web@{{ env.$WEB_DIGEST }}
+          image: ${{ env.DOCKER_USER }}/ntn-sustainability-control-web@${{ env.WEB_DIGEST }}
           sarif-file: web-scout.sarif
           exit-code: false
 
