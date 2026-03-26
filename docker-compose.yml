@@ -1,23 +1,35 @@
 services:
-  # --- Database layer ---
+  # --- Infrastructure Layer ---
   db:
     # TimescaleDB: Postgres optimized for time-series data
     build:
       context: .
       dockerfile_inline: |
         FROM timescale/timescaledb:latest-pg18
-        # This copies the real file from host into the image during the build
         COPY ./db/init.sql /docker-entrypoint-initdb.d/init.sql
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - ./LICENSE:/LICENSE:ro # Mount license file as read-only
       - pg_data:/var/lib/postgresql # Persistent storage for DB data (note: path changed from pg18 onwards)
-  
-  # --- gRPC service layer ---
-  grpc:
+
+  # Messaging between gRPC services mesh
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  # --- C++ gRPC Service Layer (Use Builder for Stage 1 Testing) ---
+  # Since gRPC image is common, build it in the 1st service, and then re-use in the rest
+  # 1. Database Gateway
+  db_service:
     image: ${DOCKER_USER:-local}/ntn-sustainability-control-grpc:${GRPC_VER:-0}-${IMAGE_TAG:-latest}-${GRPC_BLD_MSG:-dev}
     build:
       context: .
@@ -27,34 +39,90 @@ services:
         - IMAGE_TAG=${IMAGE_TAG:-latest}
         - GRPC_BLD_MSG=${GRPC_BLD_MSG:-dev}
       dockerfile: grpc/Dockerfile
+      #target: builder
     environment:
-      - LD_LIBRARY_PATH=/opt/onnxruntime/lib # Required for ONNX runtime linkage
+      PORT: 50054
+      DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GRPC_DNS_RESOLVER: native
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: ["./db_svc"]
     ports:
-      - "50051:50051" # Default gRPC port
+      - "50054:50054"
 
-  # --- Web GUI layer ---
+  # 2. NTN state machine
+  ntn_service:
+    image: ${DOCKER_USER:-local}/ntn-sustainability-control-grpc:${GRPC_VER:-0}-${IMAGE_TAG:-latest}-${GRPC_BLD_MSG:-dev}
+    environment:
+      PORT: 50055
+      GRPC_DNS_RESOLVER: native
+    ports:
+      - "50055:50055"
+    command: ["./ntn_svc"]
+
+  # 3. Inference Service
+  crisis_service:
+    image: ${DOCKER_USER:-local}/ntn-sustainability-control-grpc:${GRPC_VER:-0}-${IMAGE_TAG:-latest}-${GRPC_BLD_MSG:-dev}
+    environment:
+      PORT: 50051
+      GRPC_DNS_RESOLVER: native
+    command: ["./crisis_svc", "./crisis_gru.onnx"]
+    ports:
+      - "50051:50051"
+
+  # 4. Sustainability Orchestrator
+  sustainer_service:
+    image: ${DOCKER_USER:-local}/ntn-sustainability-control-grpc:${GRPC_VER:-0}-${IMAGE_TAG:-latest}-${GRPC_BLD_MSG:-dev}
+    environment:
+      PORT: 50052
+      DB_SERVICE_URL: db_service:50054
+      INFERENCE_URL: crisis_service:50051
+      NTN_SERVICE_URL: ntn_service:50055
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GRPC_DNS_RESOLVER: native
+    depends_on:
+      redis:
+        condition: service_started
+      ntn_service:
+        condition: service_started
+      crisis_service:
+        condition: service_started
+      db_service:
+        condition: service_started
+    command: ["./sustainer_svc"]
+    ports:
+      - "50052:50052"
+
+  # --- Web GUI Layer ---
   web:
     image: ${DOCKER_USER:-local}/ntn-sustainability-control-web:${WEB_VER:-0}-${IMAGE_TAG:-latest}-${WEB_BLD_MSG:-dev}
     build:
       context: .
       args:
         # Pass verion to dockerfile
-        - WEB_VER=${WEB_VER:-0}
-        - IMAGE_TAG=${IMAGE_TAG:-latest}
-        - WEB_BLD_MSG=${WEB_BLD_MSG:-dev}
+        WEB_VER: ${WEB_VER:-0}
+        IMAGE_TAG: ${IMAGE_TAG:-latest}
+        WEB_BLD_MSG: ${WEB_BLD_MSG:-dev}
       dockerfile: web/Dockerfile
+      #target: builder
     environment:
-      # Direct connection string for the Node.js application
-      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      PORT: 3000
+      DB_SERVICE_URL: db_service:50054 
+      REDIS_URL: redis://redis:6379
       NODE_ENV: ${NODE_ENV:-production}
-    depends_on: [db, grpc] # Ensures backend services are up before web starts
+    depends_on:
+      - db_service
+      - sustainer_service
     ports:
-      - "3000:3000" # Main web traffic
-      - "9229:9229" # Node.js debugging port
-    command: ["build/index.js"]                             # Comment for debug
-    # command: ["--inspect=0.0.0.0:9229", "build/index.js"] # Uncomment for debug
+      - "3000:3000"
+    command: ["websocket_server.js"]
 
-# --- Network and storage config ---
 networks:
   default:
     driver: bridge
@@ -63,4 +131,4 @@ networks:
       com.docker.network.driver.mtu: "1400"
 
 volumes:
-  pg_data: # Named volume for database persistence
+  pg_data:

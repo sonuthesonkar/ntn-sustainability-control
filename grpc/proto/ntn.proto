@@ -7,16 +7,19 @@ syntax = "proto3";
 
 package sustainability;
 
-service CrisisService {
-  rpc Evaluate (CrisisRequest) returns (CrisisResponse);
+service NTNService {
+  rpc ComputeState (NTNRequest) returns (NTNResponse);
 }
 
-message CrisisRequest {
-  repeated float kpi_sequence = 1;  // flattened (1, T, F)
-  int32 seq_len = 2;                // T: field tag #2
-  int32 feature_dim = 3;            // F: field tag #3
+message NTNRequest {
+  int32 current_state = 1;
+  int32 critical_count = 2;
+  int32 recovery_count = 3;
+  float score = 4;
 }
 
-message CrisisResponse {
-  repeated float crisis_scores = 1; // length = T
+message NTNResponse {
+  int32 new_state = 1;
+  int32 new_critical_count = 2;
+  int32 new_recovery_count = 3;
 }

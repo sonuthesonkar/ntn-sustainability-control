@@ -1,0 +1,79 @@
+/*------------------------------------------------------------------------*
+ * Copyright (c) 2026 Sonu Sonkar.                                        *
+ * Licensed under the MIT License.                                        *
+ * See the LICENSE file in the project root for full license information. *
+ *------------------------------------------------------------------------*/
+syntax = "proto3";
+
+package sustainability;
+
+import "proto/ntn.proto";
+
+service DBService {
+  // Session & Locking
+  rpc GetControllerLock (LockRequest) returns (LockResponse);
+  rpc ReleaseLock (LockRequest) returns (DBStatus);
+
+  // Data Ingestion
+  rpc InsertKPI (KPIUpdateRequest) returns (DBStatus);
+  
+  // Data Retrieval
+  rpc GetPaddedHistory (HistoryRequest) returns (HistoryResponse);
+  rpc GetNTNState (GetNTNStateRequest) returns (NTNResponse);
+  rpc GetLockStatus (GetLockStatusRequest) returns (GetLockStatusResponse);
+  
+  // Persistence
+  rpc SaveProcessedState (StateSaveRequest) returns (DBStatus);
+}
+
+// Dedicated request message to allow for future filters or options
+message GetNTNStateRequest {}
+
+message GetLockStatusRequest {}
+
+// Response message containing the current owner ID
+message GetLockStatusResponse {
+  string owner_id = 1;
+}
+
+message KPIValues {
+  float congestion = 1;
+  float prb_util = 2;
+  float traffic_load = 3;
+  float ran_energy = 4;
+  float carbon_intensity = 5;
+  float isac_quality = 6;
+  float mobility_rate = 7;
+}
+
+message LockRequest { string client_id = 1; }
+
+message LockResponse { 
+  string owner_id = 1; 
+}
+
+message KPIUpdateRequest { 
+  KPIValues kpis = 1;
+  string updated_field = 2; 
+}
+
+message HistoryRequest { int32 rcount = 1; }
+
+message HistoryRecord {
+  string ts = 1;
+  KPIValues kpis = 2;
+  float crisis_score = 3;
+  int32 ntn_state = 4;
+}
+
+message HistoryResponse { repeated HistoryRecord records = 1; }
+
+message StateSaveRequest {
+  KPIValues kpis = 1;
+  float score = 2;
+  int32 ntn_state = 3;
+  int32 critical_count = 4;
+  int32 recovery_count = 5;
+}
+
+message DBStatus { bool success = 1; string message = 2; }

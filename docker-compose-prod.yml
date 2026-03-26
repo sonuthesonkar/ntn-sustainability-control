@@ -1,58 +1,127 @@
 services:
-  # --- TimescaleDB (PostgreSQL with Time-Series support) ---
+  # --- Infrastructure Layer ---
   db:
+    # TimescaleDB: Postgres optimized for time-series data
     build:
       context: .
       dockerfile_inline: |
         FROM timescale/timescaledb:latest-pg18
-        # This copies the real file from host into the image during the build
-        # Required to auto-run the sql script on initial database creation
         COPY ./db/init.sql /docker-entrypoint-initdb.d/init.sql
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
-      # Named volume to ensure data survives container restarts/deletions
       - pg_data:/var/lib/postgresql # Persistent storage for DB data (note: path changed from pg18 onwards)
     restart: always
 
-  # --- gRPC Service ---
-  grpc:
+  # Messaging between gRPC services mesh
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+  # --- C++ gRPC Service Layer ---
+  # gRPC image is common. Same image runs all the services in the gRPC mesh
+  # 1. Database Gateway
+  db_service:
     # Pull the pre-compiled C++ gRPC logic from Docker Hub
     image: sonusonkar/ntn-sustainability-control-grpc:latest
     environment:
-      # Ensure the system can find ONNX Runtime shared libraries for AI/ML inference
-      - LD_LIBRARY_PATH=/opt/onnxruntime/lib
+      PORT: 50054
+      DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GRPC_DNS_RESOLVER: native
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: ["./db_svc"]
+    ports:
+      - "50054:50054"
+    restart: always
+
+  # 2. NTN state machine
+  ntn_service:
+    # Pull the pre-compiled C++ gRPC logic from Docker Hub
+    image: sonusonkar/ntn-sustainability-control-grpc:latest
+    environment:
+      PORT: 50055
+      GRPC_DNS_RESOLVER: native
+    ports:
+      - "50055:50055"
+    command: ["./ntn_svc"]
+    restart: always
+
+  # 3. Inference Service
+  crisis_service:
+    # Pull the pre-compiled C++ gRPC logic from Docker Hub
+    image: sonusonkar/ntn-sustainability-control-grpc:latest
+    environment:
+      PORT: 50051
+      GRPC_DNS_RESOLVER: native
+    command: ["./crisis_svc", "./crisis_gru.onnx"]
     ports:
       - "50051:50051"
     restart: always
 
-  # --- Node.js Web Service ---
+  # 4. Sustainability Orchestrator
+  sustainer_service:
+    # Pull the pre-compiled C++ gRPC logic from Docker Hub
+    image: sonusonkar/ntn-sustainability-control-grpc:latest
+    environment:
+      PORT: 50052
+      DB_SERVICE_URL: db_service:50054
+      INFERENCE_URL: crisis_service:50051
+      NTN_SERVICE_URL: ntn_service:50055
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GRPC_DNS_RESOLVER: native
+    depends_on:
+      redis:
+        condition: service_started
+      ntn_service:
+        condition: service_started
+      crisis_service:
+        condition: service_started
+      db_service:
+        condition: service_started
+    command: ["./sustainer_svc"]
+    ports:
+      - "50052:50052"
+    restart:  always
+
+  # --- Web GUI Layer ---
   web:
     # Pull the pre-built web application from Docker Hub
     image: sonusonkar/ntn-sustainability-control-web:latest
     environment:
-      # Connection string for Node.js to reach the 'db' service
-      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      PORT: 3000
+      DB_SERVICE_URL: db_service:50054 
+      REDIS_URL: redis://redis:6379
       NODE_ENV: ${NODE_ENV:-production}
     depends_on:
-      - db   # Wait for DB container to start
-      - grpc # Wait for gRPC container to start
+      - db_service
+      - sustainer_service
     ports:
       - "3000:3000"
-    # Executes the compiled Node.js entry point
-    command: ["build/index.js"]
+    command: ["websocket_server.js"]
     restart: always
 
-# --- Network configuration ---
 networks:
   default:
     driver: bridge
     driver_opts:
-      # Adjusted MTU to avoid network issues due to fragmentation
+      # Reduced MTU to avoid network failures due to fragmentation
       com.docker.network.driver.mtu: "1400"
 
-# --- Persistent storage ---
 volumes:
-  pg_data: # Database storage volume
+  pg_data:

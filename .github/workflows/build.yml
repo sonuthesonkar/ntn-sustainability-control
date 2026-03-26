@@ -4,31 +4,32 @@ on:
     branches: [ main ]
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Opt into Node.js 24
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Add permissions required for artifact attestations
     permissions:
       id-token: write
       contents: read
       attestations: write
     outputs:
-      # Map step outputs to job outputs for the next job
-      GRPC_DIGEST: ${{ steps.capture-digests.outputs.GRPC_DIGEST }}
-      WEB_DIGEST: ${{ steps.capture-digests.outputs.WEB_DIGEST }}
+      GRPC_DIGEST: ${{ steps.build-grpc.outputs.digest }}
+      WEB_DIGEST: ${{ steps.build-web.outputs.digest }}
     steps:
       - uses: actions/checkout@v6
       
-      - name: Set environment
+      - name: Set environment vars
         id: vars
         run: |
           echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "GRPC_VER=v1.3.1" >> $GITHUB_OUTPUT
-          echo "WEB_VER=v1.2.1" >> $GITHUB_OUTPUT
-          echo "GRPC_BLD_MSG=Secure" >> $GITHUB_OUTPUT
-          echo "WEB_BLD_MSG=Secure" >> $GITHUB_OUTPUT
+          echo "GRPC_VER=v2.0.0" >> $GITHUB_OUTPUT
+          echo "WEB_VER=v2.0.0" >> $GITHUB_OUTPUT
+          echo "GRPC_BLD_MSG=Gold" >> $GITHUB_OUTPUT
+          echo "WEB_BLD_MSG=Gold" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -36,60 +37,56 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build & Push Images
-        env:
-          # Get secrets
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
-          # Map environment
-          IMAGE_TAG: ${{ steps.vars.outputs.IMAGE_TAG }}
-          GRPC_VER: ${{ steps.vars.outputs.GRPC_VER }}
-          GRPC_BLD_MSG: ${{ steps.vars.outputs.GRPC_BLD_MSG }}
-          WEB_VER: ${{ steps.vars.outputs.WEB_VER }}
-          WEB_BLD_MSG: ${{ steps.vars.outputs.WEB_BLD_MSG }}
-        run: |
-          # Build
-          docker compose build
-          
-          # Define the specific long tags created by the build
-          GRPC_FULL_TAG="${GRPC_VER}-${IMAGE_TAG}-${GRPC_BLD_MSG}"
-          WEB_FULL_TAG="${WEB_VER}-${IMAGE_TAG}-${WEB_BLD_MSG}"
+      # Build and Push gRPC Image with Scout-required Metadata
+      - name: Build and Push gRPC Image
+        id: build-grpc
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./grpc/Dockerfile
+          push: true
+          # Generates the SBOM and Provenance Scout is asking for
+          sbom: true
+          provenance: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc:latest
+            ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc:${{ steps.vars.outputs.GRPC_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.GRPC_BLD_MSG }}
+          build-args: |
+            GRPC_VER=${{ steps.vars.outputs.GRPC_VER }}
+            IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
+            GRPC_BLD_MSG=${{ steps.vars.outputs.GRPC_BLD_MSG }}
 
-          # Tag latest
-          docker tag ${DOCKER_USER}/ntn-sustainability-control-grpc:${GRPC_FULL_TAG} ${DOCKER_USER}/ntn-sustainability-control-grpc:latest
-          docker tag ${DOCKER_USER}/ntn-sustainability-control-web:${WEB_FULL_TAG} ${DOCKER_USER}/ntn-sustainability-control-web:latest
-          
-          # Push all tags
-          docker push ${DOCKER_USER}/ntn-sustainability-control-grpc -a
-          docker push ${DOCKER_USER}/ntn-sustainability-control-web -a
+      # Build and Push Web Image
+      - name: Build and Push Web Image
+        id: build-web
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./web/Dockerfile
+          push: true
+          sbom: true
+          provenance: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web:latest
+            ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web:${{ steps.vars.outputs.WEB_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.WEB_BLD_MSG }}
+          build-args: |
+            WEB_VER=${{ steps.vars.outputs.WEB_VER }}
+            IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
+            WEB_BLD_MSG=${{ steps.vars.outputs.WEB_BLD_MSG }}
 
-      - name: Capture and Output Digests
-        id: capture-digests
-        run: |
-          # Grab the digest of the 'latest' tag just pushed
-          GRPC_SHA=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc:latest | cut -d'@' -f2)
-          WEB_SHA=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web:latest | cut -d'@' -f2)
-          
-          echo "GRPC_DIGEST=$GRPC_SHA" >> $GITHUB_OUTPUT
-          echo "WEB_DIGEST=$WEB_SHA" >> $GITHUB_OUTPUT
-
+      # GitHub-native Attestations (Visible in GitHub UI)
       - name: Attest gRPC Image
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: index.docker.io/${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc
-          subject-digest: ${{ steps.capture-digests.outputs.GRPC_DIGEST }}
-          push-to-registry: false # Only creates the record in GitHub UI for Docker Hub images
+          subject-digest: ${{ steps.build-grpc.outputs.digest }}
 
       - name: Attest Web Image
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: index.docker.io/${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web
-          subject-digest: ${{ steps.capture-digests.outputs.WEB_DIGEST }}
-          push-to-registry: false
+          subject-digest: ${{ steps.build-web.outputs.digest }}
 
-  # Trigger the Test Workflow after Build completes
   trigger-tests:
     needs: build
     permissions:
@@ -97,7 +94,6 @@ jobs:
       contents: read
     uses: ./.github/workflows/test.yml
     with:
-      # Pass the outputs from 'build' into 'test'
       GRPC_DIGEST: ${{ needs.build.outputs.GRPC_DIGEST }}
       WEB_DIGEST: ${{ needs.build.outputs.WEB_DIGEST }}
     secrets: inherit

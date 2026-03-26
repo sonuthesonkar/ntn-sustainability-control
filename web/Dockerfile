@@ -2,23 +2,24 @@
 FROM node:20-slim AS builder
 WORKDIR /app
 
-# Install dependencies
+# 1. Install dependencies (including devDeps for Vite build)
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --legacy-peer-deps
 
-# Copy source and build
+# 2. Copy source
 COPY grpc/proto ./proto
 COPY web/ .
 COPY LICENSE .
 
-# Run Build (Vite needs all devDeps here)
+# 3. Build SvelteKit (outputs to /app/build)
 RUN npm run build
 
-# NOW prune to only production libs for the final image
+# 4. Prune to only production-grade libraries
+# CRITICAL: express, ws, redis, and winston MUST be in 'dependencies'
 RUN npm prune --production
 
-# --- STAGE 2: RUNTIME (0 Vulnerabilities) ---
-FROM gcr.io/distroless/nodejs20-debian12
+# --- STAGE 2: RUNTIME ---
+FROM gcr.io/distroless/nodejs20-debian12:nonroot AS runtime
 # Required for versioning label
 ARG WEB_VER=0
 ARG IMAGE_TAG=latest
@@ -29,20 +30,23 @@ LABEL org.opencontainers.image.description="NTN Sustainability Control - Web GUI
 LABEL org.opencontainers.image.version="${WEB_VER}-${IMAGE_TAG}-${WEB_BLD_MSG}"
 LABEL org.opencontainers.image.licenses="MIT"
 
+# Execution (nonroot distroless runs as user 65532 by default)
+USER 65532
+
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy artifacts (including LICENSE)
-COPY --from=builder --chown=1000:1000 /app/package.json .
-COPY --from=builder --chown=1000:1000 /app/build ./build
-COPY --from=builder --chown=1000:1000 /app/node_modules ./node_modules
-COPY --from=builder --chown=1000:1000 /app/proto ./proto
-COPY --from=builder --chown=1000:1000 /app/LICENSE . 
+# Copy Production Artifacts
+COPY --from=builder --chown=65532:65532 /app/package.json .
+COPY --from=builder --chown=65532:65532 /app/build ./build
+COPY --from=builder --chown=65532:65532 /app/node_modules ./node_modules
+COPY --from=builder --chown=65532:65532 /app/proto ./proto
+COPY --from=builder --chown=65532:65532 /app/LICENSE . 
+# Ensure this file exists in /web/ before building
+COPY --from=builder --chown=65532:65532 /app/websocket_server.js .
 
-# Execution (Distroless runs as user 1000 by default)
-USER 1000
 EXPOSE 3000
 
-# Set the binary as the Entrypoint and the script as the default Cmd
+# Set entrypoint to our custom WebSocket/Redis bridge
 ENTRYPOINT ["/nodejs/bin/node"]
-CMD ["build/index.js"]
+CMD ["websocket_server.js"]

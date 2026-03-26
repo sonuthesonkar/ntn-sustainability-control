@@ -3,7 +3,7 @@
  * Licensed under the MIT License.                                        *
  * See the LICENSE file in the project root for full license information. *
  *------------------------------------------------------------------------*/
-import winston from 'winston';
+import { createLogger, format, transports } from 'winston';
 
 /**
  * @brief Helper function - get location of the error.
@@ -30,22 +30,25 @@ export function getErrorLocation(error: Error): string {
 /**
  * Create the winston instance
  */
-export const logger = winston.createLogger({
-    level: 'error',
-    format: winston.format.combine(
-        winston.format.errors({ stack: true }),
-        winston.format.timestamp(),
-        winston.format.json() // JSON is easier for Docker/Cloud logs to parse
-    ),
-    transports: [
-        // Write to the console (Docker will capture this automatically)
-        new winston.transports.Console({
-            format: winston.format.combine(
-                winston.format.colorize(),
-                winston.format.simple()
-            )
-        })
-    ]
+const { combine, timestamp, printf, colorize } = format;
+
+const logFormat = printf(({ timestamp, level, message, service, ...meta }) => {
+  // Capture extra metadata (like your IP object) if it exists
+  const extra = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+  
+  // Matches: [Timestamp] [Service] [Level] Message
+  return `[${timestamp}] [${service}] [${level}] ${message}${extra}`;
+});
+
+export const logger = createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: combine(
+    timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }), 
+    colorize({ all: true }), // This maps to [%^...%$] for colors
+    logFormat
+  ),
+  defaultMeta: { service: 'web-gateway' },
+  transports: [new transports.Console()]
 });
 
 /**

@@ -28,10 +28,24 @@ This architecture models sustainability as a temporal signal and governs NTN act
 
 ## Architecture Overview
 <p align="center">
-    <img src="docs/ntn-sustainability-control-architecture.webp" width="35%">
+    <img src="docs/ntn-sustainability-control-architecture.webp" width=40%>
 </p>
 
 Design principle: ML predicts sustainability stress. Deterministic policy governs NTN activation.
+
+### Distributed Control Framework
+<p align="center">
+    <img src="docs/distributed-ntn-sustainability-control-framework.svg">
+</p>
+
+The architecture is designed for a seamless transition from simulated prototype to a **live PoC**. <br/>
+While currently driven by a SvelteKit-based stress-testing GUI, the gRPC/Redis-mediated pipeline is architected to ingest **Real-Time Sustainability Telemetry** directly from real network probes.
+
+- **Data Ingestion:** Sustainability KPIs can be pushed via gRPC from **Live Sustainability Sensors**, for autonomous operation.
+
+- **Orchestration:** The `Sustainer Service` acts as the core orchestrator, batching these temporal signals to drive the `NTN State Machine` with deterministic reliability.
+
+- **Reactive Synchronization:** The event-driven Redis backbone ensures low-latency state propagation across the distributed C++ mesh, facilitating real-time NTN steering based on live environmental stress.
 
 ### Layered Separation
 
@@ -195,6 +209,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 This project utilizes the following open-source components:
 * **[PostgreSQL](https://www.postgresql.org)**: Licensed under the PostgreSQL License (Permissive).
 * **[TimescaleDB](https://www.timescale.com)**: Licensed under the Apache License 2.0 / Timescale License.
+* **[Redis](https://redis.io)**: Licensed under the AGPLv3 / RSALv2 / SSPLv1 (Tri-licensed).
 * **[gRPC](https://github.com)**: Licensed under the Apache License 2.0.
 * **[ONNX Runtime](https://github.com)**: Licensed under the MIT License.
 * **[Svelte](https://github.com)**: Licensed under the MIT License.

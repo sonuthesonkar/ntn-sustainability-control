@@ -10,8 +10,9 @@
 #include <vector>
 #include <iostream>
 #include <string>
-#include <spdlog/spdlog.h>
-#include <spdlog/fmt/fmt.h>
+#include "utils/logger.hpp"
+
+using namespace sustainability;
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -21,8 +22,8 @@ using grpc::Status;
 /**
  * @brief Implementation of the gRPC CrisisService.
  * 
- * This service handles real-time monitoring of sustainability KPIs and 
- * infers the crisis_score based on the input KPIs metrics.
+ * This service handles real-time inference of the crisis_score based 
+ * on the input sustainability KPIs metrics.
  * 
  * @note This class is marked 'final' to prevent further inheritance.
  */
@@ -49,7 +50,7 @@ public:
     input_name_str = in_ptr.get();
     output_name_str = out_ptr.get();
 
-    spdlog::info("Done | Inference engine ready | Model: {} | Input: {} | Output: {}",
+    LOG_INFO("Inference engine ready | Model: {} | Input: {} | Output: {}",
                   model_path, input_name_str, output_name_str);
   }
 
@@ -75,17 +76,17 @@ public:
         const int64_t F = req->feature_dim();
         const int64_t expected_size = T * F;
 
-        // 1. Validation + Logging
+        // Validation + Logging
         if (req->kpi_sequence_size() != expected_size) {
-          std::string errmsg = fmt::format("Error | Invalid kpi_sequence size | Got: {} | Expected: {}",
+          std::string errmsg = fmt::format("Invalid kpi_sequence size | Got: {} | Expected: {}",
                                             req->kpi_sequence_size(), expected_size);
-          spdlog::error(errmsg);  
+          LOG_ERROR(errmsg);  
             return Status(grpc::StatusCode::INVALID_ARGUMENT, errmsg);
         }
 
         std::array<int64_t, 3> shape{1, T, F};
 
-        // 2. Wrap Tensor Creation
+        // Wrap Tensor Creation
         Ort::Value input = Ort::Value::CreateTensor<float>(
           mem,
           const_cast<float*>(req->kpi_sequence().data()),
@@ -94,7 +95,7 @@ public:
           3
         );
 
-        // 3. Inference with persistent name pointers
+        // Inference with persistent name pointers
         const char* input_names[] = { input_name_str.c_str() };
         const char* output_names[] = { output_name_str.c_str() };
 
@@ -107,7 +108,7 @@ public:
           1
         );
 
-        // 4. Populate Response
+        // Populate Response
         float* scores = output[0].GetTensorMutableData<float>();
         for (int i = 0; i < T; ++i) {
             res->add_crisis_scores(scores[i]);
@@ -116,10 +117,10 @@ public:
         return Status::OK;
 
     } catch (const Ort::Exception& e) {
-        spdlog::critical("Fatal | ONNX Runtime Failed | {}", e.what());
+        LOG_CRITICAL("ONNX Runtime Failed | {}", e.what());
         return Status(grpc::StatusCode::INTERNAL, "ML Inference Failed");
     } catch (const std::exception& e) {
-        spdlog::critical("Fatal | Std C++ Exception | {}", e.what());
+        LOG_CRITICAL("Std C++ Exception | {}", e.what());
         return Status(grpc::StatusCode::INTERNAL, "Service Unavailable");
     }
   }
@@ -146,7 +147,9 @@ private:
  * @brief Entry point for the crisis score grpc service
  */
 int main(int argc, char** argv) {
-  // 1. DISABLE BUFFERING: This ensures logs show up in 'docker logs' immediately
+  logger::InitLogger("Crisis Service"); // Initialize logger
+
+  // This ensures logs show up in 'docker logs' immediately (buffering disabled)
   std::setvbuf(stdout, NULL, _IONBF, 0);
   std::setvbuf(stderr, NULL, _IONBF, 0);
 
@@ -154,28 +157,30 @@ int main(int argc, char** argv) {
   if (argc > 1) model = argv[1];
 
   try {
-    // 2. Initialize service
+    // Get port
+    const char* port = std::getenv("PORT") ? std::getenv("PORT") : "50051";
+    
+    // Initialize service
     CrisisServiceImpl service(model);
 
     ServerBuilder builder;
     // Bind to 0.0.0.0 to ensure it's reachable outside the container
-    builder.AddListeningPort("0.0.0.0:50051",
-                             grpc::InsecureServerCredentials());
+    builder.AddListeningPort("0.0.0.0:" + std::string(port), grpc::InsecureServerCredentials());
     builder.RegisterService(&service);
 
     std::unique_ptr<Server> server(builder.BuildAndStart());
     
     if (!server) {
-        spdlog::critical("Fatal | Failed to start gRPC server! Check if port 50051 is in use.");
+        LOG_CRITICAL("Service failed to start! Check if port " + std::string(port) + " is in use.");
         return 1;
     }
 
-    spdlog::info("Done | Crisis gRPC server listening on 0.0.0.0:50051");
+    LOG_INFO("Service up and listening on 0.0.0.0:" + std::string(port) + "");
     server->Wait();
 
   } catch (const std::exception& e) {
     // Catch initialization errors (e.g. model file not found)
-    spdlog::critical("Fatal | Startup failed | {}", e.what());
+    LOG_CRITICAL("Startup failed | {}", e.what());
     return 1;
   }
 

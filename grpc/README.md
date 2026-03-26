@@ -94,7 +94,7 @@ For more details on exact steps to build and run the services, refer to:
 
 From inside the `ml` directory:
 
-`python validate.py grpc`
+`python d_validate.py grpc`
 
 To validate the GRU or the ONNX model, just pass `gru`, or `onnx`, instead of `grpc`, in the above command.
 

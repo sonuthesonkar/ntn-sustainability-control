@@ -7,16 +7,11 @@ syntax = "proto3";
 
 package sustainability;
 
-service CrisisService {
-  rpc Evaluate (CrisisRequest) returns (CrisisResponse);
+message VoidMsg {}
+
+service SustainerService {
+  // Forces the worker to reload its sliding window from DB
+  rpc ResetHydration (VoidMsg) returns (SustainerStatus);
 }
 
-message CrisisRequest {
-  repeated float kpi_sequence = 1;  // flattened (1, T, F)
-  int32 seq_len = 2;                // T: field tag #2
-  int32 feature_dim = 3;            // F: field tag #3
-}
-
-message CrisisResponse {
-  repeated float crisis_scores = 1; // length = T
-}
+message SustainerStatus { bool success = 1; string message = 2; }

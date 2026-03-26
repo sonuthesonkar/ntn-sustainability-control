@@ -3,68 +3,64 @@
  * Licensed under the MIT License.                                        *
  * See the LICENSE file in the project root for full license information. *
  *------------------------------------------------------------------------*/
-import type { PageServerLoad } from './$types';
-import pg from 'pg';
-import { getPaddedHistory } from '$lib/db_queries';
 
 /**
- * @brief Create a singleton pool
+ * @file +page.server.ts
+ * @brief Server load function for the web dashboard.
+ * 
+ * Implements session management, controller locking, 
+ * and initial history hydration using the C++ Mesh gRPC Gateway.
  */
-const db = new pg.Pool({
-  connectionString: process.env.DATABASE_URL
-});
+
+import type { PageServerLoad } from './$types';
+import * as grpc from '$lib/grpc';
 
 /**
- * @brief Server load function
- * @param param0 - cookies
- * @returns clientID, mode and history (from db, and padded)
+ * @brief SvelteKit Server Load Function.
+ * @param event - Contains cookies for session tracking and client identification.
+ * @returns { clientId, mode, history } 
+ * @note Errors are handled globally via hooks.server.ts.
  */
 export const load: PageServerLoad = async ({ cookies }) => {
   try {
     let clientId = cookies.get('client_id');
-    let mode = 'observer';
-    let owner = '';
-    let qres;
+    let mode: 'controller' | 'observer' = 'observer';
+    let owner: string = '';
 
-    if (!clientId) { // Set cookie and update db
+    // Session & identity management
+    if (!clientId) {
       clientId = crypto.randomUUID();
       cookies.set('client_id', clientId, {
         path: '/',
-        httponly: true,
+        httpOnly: true,
         sameSite: 'strict',
-        maxAge: 60 * 60 * 1, // One hour
-        secure: false // Required to work with ipaddress
+        maxAge: 60 * 60 * 1, // 1-hour session expiry
+        secure: false        // Set to true in production with TLS/SSL
       });
 
-      qres = await db.query(`
-        INSERT INTO controller (id, owner_id, acquired_at)
-        VALUES (1, $1, now())
-        ON CONFLICT (id) DO UPDATE 
-        SET 
-          owner_id = EXCLUDED.owner_id,
-          acquired_at = EXCLUDED.acquired_at
-        WHERE controller.owner_id IS NULL 
-          OR controller.acquired_at < now() - INTERVAL '1 hour'
-          OR controller.owner_id = EXCLUDED.owner_id
-        RETURNING owner_id;
-      `, [clientId]); // Upsert client id
+      // Attempt to acquire the controller lock.
+      const lockRes = await grpc.getControllerLock(clientId);
+      owner = lockRes.owner_id;
     } else {
-      qres = await db.query(
-        'SELECT owner_id FROM controller WHERE id = 1'
-      );
+      // (Alternative): Fetch current owner without acquisition attempt.
+      const statusRes = await grpc.getLockStatus();
+      owner = statusRes.owner_id;
     }
 
-    owner = qres.rows[0]?.owner_id;
+    // Control mode determination
     mode = (owner === clientId) ? 'controller' : 'observer';
-    const seq_len = 60;
-    const history = await getPaddedHistory(seq_len);
+
+    // Hydrate initial 60-record history for GUI rendering
+    const SEQ_LEN = 60;
+    const historyRes = await grpc.getPaddedHistory(SEQ_LEN);
     
     return {
       client_id: clientId,
       mode: mode,
-      history: history
+      history: historyRes.records
     };
+
   } catch (err: any) {
-    throw err;
+    throw err;  // hooks.server to handle this
   }
 };

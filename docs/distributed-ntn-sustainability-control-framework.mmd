@@ -1,0 +1,55 @@
+---
+config:
+  layout: elk
+---
+graph TD
+    subgraph Client_Layer [Web Interface]
+        Svelte_UI[Svelte Web GUI]
+        Server_Load[+page.server.ts]
+        Update_Endpoint[api/update/+server.ts]
+    end
+    subgraph Gateway [Node.js Backend]
+        GRPC_Client[gRPC Client]
+        Web_Socket[Web Sockets]
+    end
+
+    subgraph Redis_Infrastructure [Redis Connectivity]
+        Redis_Stream(("#8803; Stream <br/> (Persistent Batch)"))
+        Redis_Bus(("#8613; Pub/Sub <br/> (Fire-and-Forget)"))
+    end
+
+    subgraph CPP_Mesh [C++ Distributed gRPC Services Mesh]
+        DB_Svc[[DB Service <br/> Database Gateway]]
+        Sustainer_Svc[[Sustainer Service <br/> Sustainability Orchestrator]]
+        NTN_Svc[[NTN Service <br/> State Machine]]
+        Inference_Svc[[Inference Service <br/> Crisis Model]]
+    end
+
+    DB[("PostgreSQL/TimescaleDB <br/> (KPIs, History, Locks)")]
+
+    Svelte_UI -- "a. GET /" --> Server_Load
+    Server_Load -- "b. GetLock(UUID)" --> GRPC_Client
+    GRPC_Client -- "c. gRPC Call (getLock)" --> DB_Svc
+    DB_Svc -- "d. Atomic Upsert" --> DB
+    DB_Svc -- "e. Mode + History" --> Server_Load
+    Server_Load -- "f. Render UI" --> Svelte_UI
+
+    Svelte_UI -- "1. Slide KPI" --> Update_Endpoint
+    Update_Endpoint -- "2. UpdateKPI" --> GRPC_Client
+    GRPC_Client -- "3. gRPC Call (insertKPI)" --> DB_Svc
+    DB_Svc -- "4. INSERT KPI" --> DB
+    DB_Svc -- "5. XADD: KPI_CHANGED" --> Redis_Stream
+    Redis_Stream -- "6. XREAD BLOCK: Batch" --> Sustainer_Svc
+    Sustainer_Svc -- "7. Merge & Collapse Batch" --> Sustainer_Svc
+    Sustainer_Svc -- "8. Infer Once per Batch" --> Inference_Svc
+    Sustainer_Svc -- "9. Compute State" --> NTN_Svc
+    Sustainer_Svc -- "10. Persist State" --> DB_Svc
+    
+    DB_Svc -- "11. INSERT History" --> DB
+    DB_Svc -- "12. Pub: 'UPDATE_GUI'" --> Redis_Bus
+    Redis_Bus -- "13. Sub: Notify" --> Web_Socket
+    Web_Socket -- "14. Reactive Update" --> Svelte_UI
+
+    linkStyle 0,1,2,3,4,5 stroke:#2ecc71,stroke-width:2px
+    linkStyle 6,7,8,9,10,11,12,13,14,15 stroke:#3498db,stroke-width:2px
+    linkStyle 16,17,18,19 stroke:#e67e22,stroke-width:2px
