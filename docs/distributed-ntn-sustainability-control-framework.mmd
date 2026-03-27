@@ -3,7 +3,7 @@ config:
   layout: elk
 ---
 graph TD
-    subgraph Client_Layer [Web Interface]
+    subgraph Client_Layer ["Web Interface <br/> (Emulates: RU/UE Sensors & DT Monitor)"]
         Svelte_UI[Svelte Web GUI]
         Server_Load[+page.server.ts]
         Update_Endpoint[api/update/+server.ts]
@@ -18,11 +18,11 @@ graph TD
         Redis_Bus(("#8613; Pub/Sub <br/> (Fire-and-Forget)"))
     end
 
-    subgraph CPP_Mesh [C++ Distributed gRPC Services Mesh]
-        DB_Svc[[DB Service <br/> Database Gateway]]
-        Sustainer_Svc[[Sustainer Service <br/> Sustainability Orchestrator]]
-        NTN_Svc[[NTN Service <br/> State Machine]]
-        Inference_Svc[[Inference Service <br/> Crisis Model]]
+    subgraph CPP_Mesh [C++ Distributed gRPC Mesh <br/> 6G Services]
+        DB_Svc[[DB Service <br/> MDA]]
+        Sustainer_Svc[[Sustainer Service <br/> SMO]]
+        NTN_Svc[[NTN Service <br/> NTN Gateway]]
+        Inference_Svc[[Inference Service <br/> AI MF]]
     end
 
     DB[("PostgreSQL/TimescaleDB <br/> (KPIs, History, Locks)")]

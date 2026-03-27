@@ -38,14 +38,14 @@ Design principle: ML predicts sustainability stress. Deterministic policy govern
     <img src="docs/distributed-ntn-sustainability-control-framework.svg">
 </p>
 
-The architecture is designed for a seamless transition from simulated prototype to a **live PoC**. <br/>
-While currently driven by a SvelteKit-based stress-testing GUI, the gRPC/Redis-mediated pipeline is architected to ingest **Real-Time Sustainability Telemetry** directly from real network probes.
+The system is architected for a seamless transition from a simulated prototype to a live Proof-of-Concept (PoC). <br/>
+While currently driven by a SvelteKit-based interface that emulates RU/UE Sensor Probes and a Digital Twin Monitor, the underlying gRPC/Redis pipeline is ready for real 6G deployment.
 
-- **Data Ingestion:** Sustainability KPIs can be pushed via gRPC from **Live Sustainability Sensors**, for autonomous operation.
+- **Data Ingestion (MDA):** Through the DB Service, real-time Sustainability KPIs can be pushed via gRPC directly from physical network probes, for autonomous operation.
 
-- **Orchestration:** The `Sustainer Service` acts as the core orchestrator, batching these temporal signals to drive the `NTN State Machine` with deterministic reliability.
+- **Intelligent Orchestration (SMO & AI MF):** The Sustainer Service acts as the core orchestrator, batching these temporal signals to drive the NTN State Machine over the NTN Service with deterministic reliability.
 
-- **Reactive Synchronization:** The event-driven Redis backbone ensures low-latency state propagation across the distributed C++ mesh, facilitating real-time NTN steering based on live environmental stress.
+- **Reactive Synchronization (NTN Gateway & Digital Twin):** The event-driven Redis backbone ensures low-latency state propagation across the distributed 6G services mesh and the Network Digital Twin (Svelte Dashboard), facilitating real-time visualization of the network’s autonomous response to environmental stress.
 
 ### Layered Separation
 
