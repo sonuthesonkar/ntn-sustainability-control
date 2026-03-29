@@ -5,11 +5,13 @@ on:
     # Define the "Receivers" (Inputs)
     inputs:
       GRPC_DIGEST:
-        required: true
+        required: false
         type: string
+        default: ''
       WEB_DIGEST:
-        required: true
+        required: false
         type: string
+        default: ''
 
 permissions:
   contents: read
@@ -34,25 +36,37 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Pull Images, Check Digest, and Start Stack
+      - name: Pull Images and Start Stack
         run: |
           echo "Pulling images from Docker Hub..."
           docker compose -f ./docker-compose-prod.yml pull
-          
-          echo "Verifying gRPC image digest..."
-          PULLED_GRPC_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${DOCKER_USER}/ntn-sustainability-control-grpc:latest | cut -d'@' -f2)
-          if [ "$PULLED_GRPC_DIGEST" != "$GRPC_DIGEST" ]; then
-            echo "ERROR: gRPC digest mismatch! Expected $GRPC_DIGEST but got $PULLED_GRPC_DIGEST"
-            exit 1
+
+      - name: Check Digests
+        run: |    
+          if [ -n "$GRPC_DIGEST" ]; then
+            echo "Verifying gRPC image digest..."
+            PULLED_GRPC_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${DOCKER_USER}/ntn-sustainability-control-grpc:latest | cut -d'@' -f2)
+            if [ "$PULLED_GRPC_DIGEST" != "$GRPC_DIGEST" ]; then
+              echo "ERROR: gRPC digest mismatch! Expected $GRPC_DIGEST but got $PULLED_GRPC_DIGEST"
+              exit 1
+            fi
+          else
+            echo "No new gRPC digest built; using existing latest."
           fi
 
-          echo "Verifying Web image digest..."
-          PULLED_WEB_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${DOCKER_USER}/ntn-sustainability-control-web:latest | cut -d'@' -f2)
-          if [ "$PULLED_WEB_DIGEST" != "$WEB_DIGEST" ]; then
-            echo "ERROR: Web digest mismatch! Expected $WEB_DIGEST but got $PULLED_WEB_DIGEST"
-            exit 1
+          if [ -n "$WEB_DIGEST" ]; then
+            echo "Verifying Web image digest..."
+            PULLED_WEB_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${DOCKER_USER}/ntn-sustainability-control-web:latest | cut -d'@' -f2)
+            if [ "$PULLED_WEB_DIGEST" != "$WEB_DIGEST" ]; then
+              echo "ERROR: Web digest mismatch! Expected $WEB_DIGEST but got $PULLED_WEB_DIGEST"
+              exit 1
+            fi
+          else
+            echo "No new Web digest build; using existing latest."
           fi
-          
+
+      - name: Start Stack
+        run: |    
           echo "Starting stack..."
           docker compose -f ./docker-compose-prod.yml up -d --wait
 
@@ -62,7 +76,9 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # Only scan if a new gRPC image was actually built
       - name: Docker Scout - Scan GRPC
+        if: inputs.GRPC_DIGEST != ''
         id: grpc-scout
         uses: docker/scout-action@v1
         continue-on-error: true
@@ -80,7 +96,9 @@ jobs:
           sarif_file: grpc-scout.sarif
           category: grpc-sarif
 
+      # Only scan if a new Web image was actually built
       - name: Docker Scout - Scan Web
+        if: inputs.WEB_DIGEST != ''
         id: web-scout
         uses: docker/scout-action@v1
         continue-on-error: true

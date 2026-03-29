@@ -14,22 +14,33 @@ jobs:
       contents: read
       attestations: write
     outputs:
+      # These will be empty strings if the steps are skipped
       GRPC_DIGEST: ${{ steps.build-grpc.outputs.digest }}
       WEB_DIGEST: ${{ steps.build-web.outputs.digest }}
     steps:
       - uses: actions/checkout@v6
+
+      # Detect which folders changed
+      - uses: dorny/paths-filter@v4
+        id: changes
+        with:
+          filters: |
+            grpc:
+              - 'grpc/**'
+            web:
+              - 'web/**'
       
       - name: Set environment vars
         id: vars
         run: |
           echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "GRPC_VER=v2.0.0" >> $GITHUB_OUTPUT
-          echo "WEB_VER=v2.0.0" >> $GITHUB_OUTPUT
+          echo "WEB_VER=v2.0.1" >> $GITHUB_OUTPUT
           echo "GRPC_BLD_MSG=Gold" >> $GITHUB_OUTPUT
-          echo "WEB_BLD_MSG=Gold" >> $GITHUB_OUTPUT
+          echo "WEB_BLD_MSG=Gold_fix_CVE-2026-4867" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -37,8 +48,9 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Build and Push gRPC Image with Scout-required Metadata
+      # Build and Push gRPC Image with Scout-required Metadata - Only runs if /grpc changed
       - name: Build and Push gRPC Image
+        if: steps.changes.outputs.grpc == 'true'
         id: build-grpc
         uses: docker/build-push-action@v7
         with:
@@ -48,6 +60,8 @@ jobs:
           # Generates the SBOM and Provenance Scout is asking for
           sbom: true
           provenance: true
+          cache-from: type=gha,scope=grpc
+          cache-to: type=gha,mode=max,scope=grpc
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc:latest
             ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc:${{ steps.vars.outputs.GRPC_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.GRPC_BLD_MSG }}
@@ -56,8 +70,9 @@ jobs:
             IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
             GRPC_BLD_MSG=${{ steps.vars.outputs.GRPC_BLD_MSG }}
 
-      # Build and Push Web Image
+      # Build and Push Web Image - Only runs if /grpc changed
       - name: Build and Push Web Image
+        if: steps.changes.outputs.web == 'true'
         id: build-web
         uses: docker/build-push-action@v7
         with:
@@ -66,6 +81,8 @@ jobs:
           push: true
           sbom: true
           provenance: true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web:latest
             ${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web:${{ steps.vars.outputs.WEB_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.WEB_BLD_MSG }}
@@ -76,12 +93,14 @@ jobs:
 
       # GitHub-native Attestations (Visible in GitHub UI)
       - name: Attest gRPC Image
+        if: steps.changes.outputs.grpc == 'true'
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: index.docker.io/${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-grpc
           subject-digest: ${{ steps.build-grpc.outputs.digest }}
 
       - name: Attest Web Image
+        if: steps.changes.outputs.web == 'true'
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: index.docker.io/${{ secrets.DOCKER_USERNAME }}/ntn-sustainability-control-web
@@ -89,11 +108,16 @@ jobs:
 
   trigger-tests:
     needs: build
+    # Trigger even if one build was skipped, but only if at least one succeeded
+    if: |
+      always() && 
+      (needs.build.result == 'success') &&
+      (needs.build.outputs.GRPC_DIGEST != '' || needs.build.outputs.WEB_DIGEST != '')
     permissions:
       security-events: write
       contents: read
     uses: ./.github/workflows/test.yml
     with:
-      GRPC_DIGEST: ${{ needs.build.outputs.GRPC_DIGEST }}
-      WEB_DIGEST: ${{ needs.build.outputs.WEB_DIGEST }}
+      GRPC_DIGEST: ${{ needs.build.outputs.GRPC_DIGEST || '' }}
+      WEB_DIGEST: ${{ needs.build.outputs.WEB_DIGEST || '' }}
     secrets: inherit
