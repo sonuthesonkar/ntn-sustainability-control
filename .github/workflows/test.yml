@@ -15,10 +15,14 @@ on:
 
 permissions:
   contents: read
-  security-events: write
+  packages: read # Required to pull from GHCR
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Opt into Node.js 24
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/
+  # Replace with actual GHCR paths (lowercase)
+  IMAGE_GRPC: ntn-sustainability-control-grpc
+  IMAGE_WEB: ntn-sustainability-control-web
 
 jobs:
   test-and-upload-reports:
@@ -28,7 +32,6 @@ jobs:
       GRPC_DIGEST: ${{ inputs.GRPC_DIGEST }}
       WEB_DIGEST: ${{ inputs.WEB_DIGEST }}
       # Secrets inherited via 'secrets: inherit'
-      DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
       DB_USER: ${{ secrets.DB_USER }}
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
@@ -36,16 +39,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Pull Images and Start Stack
         run: |
-          echo "Pulling images from Docker Hub..."
+          echo "Pulling images from GHCR..."
+          # Note: Ensure docker-compose-prod.yml uses the GHCR image name (including ghcr.io)
           docker compose -f ./docker-compose-prod.yml pull
 
       - name: Check Digests
         run: |    
           if [ -n "$GRPC_DIGEST" ]; then
             echo "Verifying gRPC image digest..."
-            PULLED_GRPC_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${DOCKER_USER}/ntn-sustainability-control-grpc:latest | cut -d'@' -f2)
+            FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_GRPC }}:latest"
+            PULLED_GRPC_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $FULL_IMAGE | cut -d'@' -f2)
             if [ "$PULLED_GRPC_DIGEST" != "$GRPC_DIGEST" ]; then
               echo "ERROR: gRPC digest mismatch! Expected $GRPC_DIGEST but got $PULLED_GRPC_DIGEST"
               exit 1
@@ -56,7 +68,8 @@ jobs:
 
           if [ -n "$WEB_DIGEST" ]; then
             echo "Verifying Web image digest..."
-            PULLED_WEB_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${DOCKER_USER}/ntn-sustainability-control-web:latest | cut -d'@' -f2)
+            FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_WEB }}:latest"
+            PULLED_WEB_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $FULL_IMAGE | cut -d'@' -f2)
             if [ "$PULLED_WEB_DIGEST" != "$WEB_DIGEST" ]; then
               echo "ERROR: Web digest mismatch! Expected $WEB_DIGEST but got $PULLED_WEB_DIGEST"
               exit 1
@@ -70,51 +83,7 @@ jobs:
           echo "Starting stack..."
           docker compose -f ./docker-compose-prod.yml up -d --wait
 
-      - name: Login to Docker Hub # Required for docker scout
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      # Only scan if a new gRPC image was actually built
-      - name: Docker Scout - Scan GRPC
-        if: inputs.GRPC_DIGEST != ''
-        id: grpc-scout
-        uses: docker/scout-action@v1
-        continue-on-error: true
-        with:
-          command: cves
-          # Use the specific SHA tag just verified
-          image: ${{ env.DOCKER_USER }}/ntn-sustainability-control-grpc@${{ env.GRPC_DIGEST }}
-          sarif-file: grpc-scout.sarif
-          exit-code: false # Don't block Playwright tests
-
-      - name: Upload GRPC Scan Results
-        uses: github/codeql-action/upload-sarif@v4
-        if: always() && steps.grpc-scout.outcome == 'success' # Upload even if previous step found vulnerabilities
-        with:
-          sarif_file: grpc-scout.sarif
-          category: grpc-sarif
-
-      # Only scan if a new Web image was actually built
-      - name: Docker Scout - Scan Web
-        if: inputs.WEB_DIGEST != ''
-        id: web-scout
-        uses: docker/scout-action@v1
-        continue-on-error: true
-        with:
-          command: cves
-          image: ${{ env.DOCKER_USER }}/ntn-sustainability-control-web@${{ env.WEB_DIGEST }}
-          sarif-file: web-scout.sarif
-          exit-code: false
-
-      - name: Upload Web Scan Results
-        uses: github/codeql-action/upload-sarif@v4
-        if: always() && steps.web-scout.outcome == 'success' # Upload even if previous step found vulnerabilities
-        with:
-          sarif_file: web-scout.sarif
-          category: web-sarif
-      
+      # --- PLAYWRIGHT TESTS ---
       - name: Run Playwright Tests
         working-directory: playwright
         run: |

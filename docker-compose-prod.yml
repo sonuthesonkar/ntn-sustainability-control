@@ -32,7 +32,7 @@ services:
   # 1. Database Gateway
   db_service:
     # Pull the pre-compiled C++ gRPC logic from Docker Hub
-    image: sonusonkar/ntn-sustainability-control-grpc:latest
+    image: ghcr.io/sonuthesonkar/ntn-sustainability-control-grpc:latest
     environment:
       PORT: 50054
       DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
@@ -52,7 +52,7 @@ services:
   # 2. NTN state machine
   ntn_service:
     # Pull the pre-compiled C++ gRPC logic from Docker Hub
-    image: sonusonkar/ntn-sustainability-control-grpc:latest
+    image: ghcr.io/sonuthesonkar/ntn-sustainability-control-grpc:latest
     environment:
       PORT: 50055
       GRPC_DNS_RESOLVER: native
@@ -64,7 +64,7 @@ services:
   # 3. Inference Service
   crisis_service:
     # Pull the pre-compiled C++ gRPC logic from Docker Hub
-    image: sonusonkar/ntn-sustainability-control-grpc:latest
+    image: ghcr.io/sonuthesonkar/ntn-sustainability-control-grpc:latest
     environment:
       PORT: 50051
       GRPC_DNS_RESOLVER: native
@@ -76,7 +76,7 @@ services:
   # 4. Sustainability Orchestrator
   sustainer_service:
     # Pull the pre-compiled C++ gRPC logic from Docker Hub
-    image: sonusonkar/ntn-sustainability-control-grpc:latest
+    image: ghcr.io/sonuthesonkar/ntn-sustainability-control-grpc:latest
     environment:
       PORT: 50052
       DB_SERVICE_URL: db_service:50054
@@ -102,7 +102,7 @@ services:
   # --- Web GUI Layer ---
   web:
     # Pull the pre-built web application from Docker Hub
-    image: sonusonkar/ntn-sustainability-control-web:latest
+    image: ghcr.io/sonuthesonkar/ntn-sustainability-control-web:latest
     environment:
       PORT: 3000
       DB_SERVICE_URL: db_service:50054 

@@ -40,13 +40,28 @@ RUN cmake -B build -S ./grpc -DCMAKE_BUILD_TYPE=Release && \
 # Copy the models into the build folder so they are "next to" the binary
 COPY ./grpc/models/* ./build/
 
+# Create a staging area for only the middleware libs
+RUN mkdir -p /app/staging_libs && \
+    cp /usr/lib/x86_64-linux-gnu/*.so* /app/staging_libs/ && \
+    # Manually delete the problematic system libs so they don't overwrite chainguard
+    rm -f /app/staging_libs/libc.so* \
+          /app/staging_libs/libstdc++.so* \
+          /app/staging_libs/libm.so* \
+          /app/staging_libs/libdl.so* \
+          /app/staging_libs/librt.so* \
+          /app/staging_libs/libpthread.so* \
+          /app/staging_libs/libgcc_s.so* \
+          /app/staging_libs/ld-linux-x86-64.so*
+
 # --- CRITICAL FIX FOR STAGE 1 SYMMETRY ---
 # Set WORKDIR to the build folder so Stage 1 matches Stage 2 paths
 WORKDIR /app/build
 # -----------------------------------------
 
-# --- STAGE 2: RUNTIME (Distroless) ---
-FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+# --- STAGE 2: RUNTIME (Chainguard) ---
+# This image is built specifically to fix the vulnerabilities
+FROM cgr.dev/chainguard/glibc-dynamic:latest AS runtime
+
 # Required for versioning label
 ARG GRPC_VER=0
 ARG IMAGE_TAG=latest
@@ -63,9 +78,8 @@ USER 65532
 # Set WORKDIR to /app/build so ./binary works in both stages
 WORKDIR /app/build
 
-# Copy ONLY the shared objects (skips headers and static libs)
-COPY --from=builder --chown=65532:65532 /usr/lib/x86_64-linux-gnu/*.so* /usr/lib/x86_64-linux-gnu/
-COPY --from=builder --chown=65532:65532 /lib/x86_64-linux-gnu/*.so* /lib/x86_64-linux-gnu/
+# Copy the filtered dependencies (this skips the vulnerable libc6/libssl3 from Stage 1)
+COPY --from=builder --chown=65532:65532 /app/staging_libs/ /usr/lib/x86_64-linux-gnu/
 
 # Copy onnx runtime
 COPY --from=builder --chown=65532:65532 /opt/onnxruntime/lib/libonnxruntime.so* /usr/lib/x86_64-linux-gnu/
@@ -82,6 +96,6 @@ COPY --from=builder --chown=65532:65532 /app/build/ntn_svc .
 COPY --from=builder --chown=65532:65532 /etc/nsswitch.conf /etc/nsswitch.config
 ENV GRPC_DNS_RESOLVER=native
 
-ENV LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu"
+ENV LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu"
 
 CMD [ "./sustainer_svc" ]

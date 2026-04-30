@@ -1,5 +1,5 @@
 # --- STAGE 1: BUILD ---
-FROM node:20-slim AS builder
+FROM node:24-slim AS builder
 WORKDIR /app
 
 # 1. Install dependencies (including devDeps for Vite build)
@@ -16,10 +16,12 @@ RUN npm run build
 
 # 4. Prune to only production-grade libraries
 # CRITICAL: express, ws, redis, and winston MUST be in 'dependencies'
-RUN npm prune --production
+RUN npm ci --omit=dev
 
-# --- STAGE 2: RUNTIME ---
-FROM gcr.io/distroless/nodejs20-debian12:nonroot AS runtime
+# --- STAGE 2: RUNTIME (Chainguard)---
+# This image is built specifically to fix the vulnerabilities
+FROM cgr.dev/chainguard/node:latest AS runtime
+
 # Required for versioning label
 ARG WEB_VER=0
 ARG IMAGE_TAG=latest
@@ -30,7 +32,16 @@ LABEL org.opencontainers.image.description="NTN Sustainability Control - Web GUI
 LABEL org.opencontainers.image.version="${WEB_VER}-${IMAGE_TAG}-${WEB_BLD_MSG}"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# Execution (nonroot distroless runs as user 65532 by default)
+# In the runtime stage (before switching to USER 65532), 
+# clean up the not required modules from the base image, avoiding security scan checking unnecesary modules
+USER root
+RUN rm -rf /usr/lib/node_modules/npm \
+    /usr/bin/npm \
+    /usr/bin/npx \
+    /var/lib/db/sbom/npm-*.spdx.json
+
+
+# Execution (nonroot user 65532 by default)
 USER 65532
 
 WORKDIR /app
@@ -48,5 +59,5 @@ COPY --from=builder --chown=65532:65532 /app/websocket_server.js .
 EXPOSE 3000
 
 # Set entrypoint to our custom WebSocket/Redis bridge
-ENTRYPOINT ["/nodejs/bin/node"]
+#ENTRYPOINT ["/nodejs/bin/node"]    # Chainguard doesn't need this
 CMD ["websocket_server.js"]
