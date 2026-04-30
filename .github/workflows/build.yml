@@ -2,6 +2,13 @@ name: CI
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:  # Allows manual trigger
+    inputs:
+      force_build:
+        description: 'Force a full build of both images'
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -57,7 +64,9 @@ jobs:
 
       # --- gRPC Build, Scan, and Push ---
       - name: Build and Push gRPC Image
-        if: steps.changes.outputs.grpc == 'true'
+        if: |
+          steps.changes.outputs.grpc == 'true' ||
+          (github.event_name == 'workflow_dispatch' && inputs.force_build == true)
         id: build-grpc
         uses: docker/build-push-action@v7
         with:
@@ -74,7 +83,8 @@ jobs:
             GRPC_BLD_MSG=${{ steps.vars.outputs.GRPC_BLD_MSG }}
 
       - name: Run Trivy Scan (gRPC)
-        if: steps.changes.outputs.grpc == 'true'
+        id: scan-grpc
+        if: steps.build-grpc.outcome != 'skipped'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest'
@@ -85,14 +95,16 @@ jobs:
       # Upload grpc results to GitHub Security tab
       - name: Upload grpc results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && steps.scan-grpc.outcome != 'skipped'
         with:
           sarif_file: 'trivy-results-grpc.sarif'
-          category: 'grpc-scan-resuls'
+          category: 'grpc-scan-results'
 
       # --- Web Build, Scan, and Push ---
       - name: Build and Push Web Image
-        if: steps.changes.outputs.web == 'true'
+        if: |
+          steps.changes.outputs.web == 'true' ||
+          (github.event_name == 'workflow_dispatch' && inputs.force_build == true)
         id: build-web
         uses: docker/build-push-action@v7
         with:
@@ -109,7 +121,8 @@ jobs:
             WEB_BLD_MSG=${{ steps.vars.outputs.WEB_BLD_MSG }}
 
       - name: Run Trivy Scan (Web)
-        if: steps.changes.outputs.web == 'true'
+        id: scan-web
+        if: steps.build-web.outcome != 'skipped'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest'
@@ -120,21 +133,21 @@ jobs:
       # Upload web results to GitHub Security tab
       - name: Upload web results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && steps.scan-web.outcome != 'skipped'
         with:
           sarif_file: 'trivy-results-web.sarif'
-          category: 'web-scan-resuls'
+          category: 'web-scan-results'
 
       # --- Attestations (Updated for GHCR) ---
       - name: Attest gRPC Image
-        if: steps.changes.outputs.grpc == 'true'
+        if: steps.scan-grpc.outcome == 'success'
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}
           subject-digest: ${{ steps.build-grpc.outputs.digest }}
 
       - name: Attest Web Image
-        if: steps.changes.outputs.web == 'true'
+        if: steps.scan-web.outcome == 'success'
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
@@ -144,7 +157,6 @@ jobs:
     needs: build
     # Trigger even if one build was skipped, but only if at least one succeeded
     if: |
-      always() && 
       (needs.build.result == 'success') &&
       (needs.build.outputs.GRPC_DIGEST != '' || needs.build.outputs.WEB_DIGEST != '')
     uses: ./.github/workflows/test.yml
