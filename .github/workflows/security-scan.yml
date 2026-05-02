@@ -1,34 +1,149 @@
-name: Bi-monthly Security Scan
+name: Security
+# Bi-monthly security scan
 on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
   schedule:
     - cron: '0 0 1,15 * *' # Bi-monthly runs (1st and 15th)
   workflow_dispatch:   # Allows manual trigger
 
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/
+  # Converts repository name to lowercase for GHCR compatibility
+  IMAGE_NAME_GRPC: ntn-sustainability-control-grpc
+  IMAGE_NAME_WEB: ntn-sustainability-control-web
+
 jobs:
   scan:
     runs-on: ubuntu-latest
+    # Only skip if workflow_run is the trigger AND it failed. Manual/Schedule will still run.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: read
       security-events: write # To upload results to the Security tab
+      id-token: write
+      attestations: write
     steps:
+      - name: Check if images were built
+        if: github.event_name == 'workflow_run'
+        run: |
+          # Use GitHub CLI to check if the artifact exists in the parent run
+          HAS_ARTIFACT=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/artifacts --jq '.artifacts[] | select(.name=="upload-image-digests")')
+          if [[ -z "$HAS_ARTIFACT" ]]; then
+            echo "Build was skipped (no changes). Skipping this workflow."
+            exit 0 # Exits successfully so the UI stays green but empty
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      # Download digest json (if triggered by workflow_run, else skip)
+      - name: Download Digests
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: upload-image-digests
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      # Get digests (if available), and create tags for scan
+      - name: Extract Digests
+        run: |
+          # Check if it's a workflow_run AND the json was actually downloaded and extract digest
+          if [[ "${{ github.event_name }}" == "workflow_run" && -f digests.json ]]; then
+            G_DIGEST=$(jq -r '."grpc-digest"' digests.json)
+            W_DIGEST=$(jq -r '."web-digest"' digests.json)
+          else
+            G_DIGEST=NA
+            W_DIGEST=NA
+          fi
+
+          # Set Digest env for Attestations
+          echo "GRPC_DIGEST=$G_DIGEST" >> $GITHUB_ENV
+          echo "WEB_DIGEST=$W_DIGEST" >> $GITHUB_ENV
+
+          # Populate tags for scan
+          GRPC_TAG=$( [[ "$G_DIGEST" == "NA" ]] && echo ":latest" || echo "@$G_DIGEST" )
+          WEB_TAG=$( [[ "$W_DIGEST" == "NA" ]] && echo ":latest" || echo "@$W_DIGEST" )
+
+          # Set tags env for scan
+          echo "GRPC_TAG=$GRPC_TAG" >> $GITHUB_ENV
+          echo "WEB_TAG=$WEB_TAG" >> $GITHUB_ENV
+      
+      # Scan gRPC image
       - name: Scan gRPC Image
+        id: scan-grpc
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: 'ghcr.io/${{ github.repository_owner }}/ntn-sustainability-control-grpc:latest'
+          image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}${{ env.GRPC_TAG }}'
           format: 'sarif'
-          output: 'trivy-grpc.sarif'
+          output: 'trivy-results-grpc.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
-      - name: Scan Web Image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: 'ghcr.io/${{ github.repository_owner }}/ntn-sustainability-control-web:latest'
-          format: 'sarif'
-          output: 'trivy-web.sarif'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Upload results to GitHub Security
+      # Upload grpc results to GitHub Security tab
+      - name: Upload grpc results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && steps.scan-grpc.outcome != 'skipped'
         with:
-          sarif_file: '.'
+          sarif_file: 'trivy-results-grpc.sarif'
+          category: 'grpc-scan-results'
+
+      # Upload grpc results as artifact
+      - name: Upload gRPC scan report
+        if: always() && steps.scan-grpc.outcome != 'skipped'  # Publish reports even on failure
+        uses: actions/upload-artifact@v6
+        with:
+          name: grpc-vulnerability-report
+          path: trivy-results-grpc.sarif # Report location 
+          retention-days: 15
+
+      # Scan web image
+      - name: Scan Web Image
+        id: scan-web
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}${{ env.WEB_TAG }}'
+          format: 'sarif'
+          output: 'trivy-results-web.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      # Upload web results to GitHub Security tab
+      - name: Upload web results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.scan-web.outcome != 'skipped'
+        with:
+          sarif_file: 'trivy-results-web.sarif'
+          category: 'web-scan-results'
+
+      # Upload web results as artifact
+      - name: Upload web scan report
+        if: always() && steps.scan-web.outcome != 'skipped'  # Publish reports even on failure
+        uses: actions/upload-artifact@v6
+        with:
+          name: web-vulnerability-report
+          path: trivy-results-web.sarif # Report location 
+          retention-days: 15
+
+      # --- Attestations ---
+      - name: Attest gRPC Image
+        if: steps.scan-grpc.outcome == 'success' && env.GRPC_DIGEST != 'NA'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}
+          subject-digest: ${{ env.GRPC_DIGEST }}
+
+      - name: Attest Web Image
+        if: steps.scan-web.outcome == 'success' && env.WEB_DIGEST != 'NA'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
+          subject-digest: ${{ env.WEB_DIGEST }}

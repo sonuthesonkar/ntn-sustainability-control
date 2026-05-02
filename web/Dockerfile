@@ -26,10 +26,11 @@ FROM cgr.dev/chainguard/node:latest AS runtime
 ARG WEB_VER=0
 ARG IMAGE_TAG=latest
 ARG WEB_BLD_MSG=dev
+ARG BLD_NMBR=0
 
 # Metadata for Docker Hub / GitHub
 LABEL org.opencontainers.image.description="NTN Sustainability Control - Web GUI"
-LABEL org.opencontainers.image.version="${WEB_VER}-${IMAGE_TAG}-${WEB_BLD_MSG}"
+LABEL org.opencontainers.image.version="${WEB_VER}-${IMAGE_TAG}-${BLD_NMBR}-${WEB_BLD_MSG}"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # In the runtime stage (before switching to USER 65532), 

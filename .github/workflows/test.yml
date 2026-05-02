@@ -1,19 +1,13 @@
-name: Test & Publish
-
+name: Test
+# Test and publish test reports
 on:
-  workflow_call:
-    # Define the "Receivers" (Inputs)
-    inputs:
-      GRPC_DIGEST:
-        required: false
-        type: string
-        default: ''
-      WEB_DIGEST:
-        required: false
-        type: string
-        default: ''
+  workflow_run:
+    workflows: ["Security"]
+    types: [completed]
+  workflow_dispatch:   # Allows manual trigger
 
 permissions:
+  actions: read
   contents: read
   packages: read # Required to pull from GHCR
 
@@ -27,16 +21,28 @@ env:
 jobs:
   test-and-upload-reports:
     runs-on: ubuntu-latest
+    # Only skip if workflow_run is the trigger AND it failed. Manual/Schedule will still run.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     env:
-      # Map Inputs to Environment Variables for Docker Compose
-      GRPC_DIGEST: ${{ inputs.GRPC_DIGEST }}
-      WEB_DIGEST: ${{ inputs.WEB_DIGEST }}
-      # Secrets inherited via 'secrets: inherit'
+      # From github secrets
       DB_USER: ${{ secrets.DB_USER }}
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
     
     steps:
+      - name: Check for build artifacts
+        if: github.event_name == 'workflow_run'
+        run: |
+          # Use GitHub CLI to check if the Build produced an artifact for this commit
+          HAS_ARTIFACT=$(gh api repos/${{ github.repository }}/actions/runs --jq ".workflow_runs[] | select(.head_sha==\"${{ github.event.workflow_run.head_sha }}\" and .name==\"Build\") | .id" | xargs -I {} gh api repos/${{ github.repository }}/actions/runs/{}/artifacts --jq '.artifacts[] | select(.name=="upload-image-digests")')
+          
+          if [[ -z "$HAS_ARTIFACT" ]]; then
+            echo "No new images were built for this commit. Skipping tests."
+            exit 0
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - uses: actions/checkout@v6
 
       - name: Login to GHCR
@@ -46,6 +52,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Download digest json (if triggered by workflow_run, else skip)
+      - name: Download Digests from Build
+        if: github.event_name == 'workflow_run'
+        uses: dawidd6/action-download-artifact@v21
+        with:
+          # Search for the successful run of 'build.yml' for the same commit
+          workflow: build.yml
+          commit: ${{ github.event.workflow_run.head_sha }}
+          name: upload-image-digests # Name used in the 'upload-artifact' step
+          workflow_conclusion: success
+          path: ./metadata
+
+      # Get digests (if available), and create tags for scan
+      - name: Extract Digests
+        run: |
+          # Check if it's a workflow_run AND the json was actually downloaded and extract digest
+          if [[ "${{ github.event_name }}" == "workflow_run" && -f ./metadata/digests.json ]]; then
+            G_DIGEST=$(jq -r '."grpc-digest"' ./metadata/digests.json)
+            W_DIGEST=$(jq -r '."web-digest"' ./metadata/digests.json)
+          else
+            G_DIGEST=NA
+            W_DIGEST=NA
+          fi
+
+          # Set Digest env for Attestations
+          echo "GRPC_DIGEST=$G_DIGEST" >> $GITHUB_ENV
+          echo "WEB_DIGEST=$W_DIGEST" >> $GITHUB_ENV
+
       - name: Pull Images and Start Stack
         run: |
           echo "Pulling images from GHCR..."
@@ -54,11 +88,11 @@ jobs:
 
       - name: Check Digests
         run: |    
-          if [ -n "$GRPC_DIGEST" ]; then
+          if [[ -n "$GRPC_DIGEST" && "$GRPC_DIGEST" != "NA" ]]; then
             echo "Verifying gRPC image digest..."
-            FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_GRPC }}:latest"
+            FULL_IMAGE="${{ env.REGISTRY }}${{ env.IMAGE_GRPC }}:latest"
             PULLED_GRPC_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $FULL_IMAGE | cut -d'@' -f2)
-            if [ "$PULLED_GRPC_DIGEST" != "$GRPC_DIGEST" ]; then
+            if [[ "$PULLED_GRPC_DIGEST" != "$GRPC_DIGEST" ]]; then
               echo "ERROR: gRPC digest mismatch! Expected $GRPC_DIGEST but got $PULLED_GRPC_DIGEST"
               exit 1
             fi
@@ -66,11 +100,11 @@ jobs:
             echo "No new gRPC digest built; using existing latest."
           fi
 
-          if [ -n "$WEB_DIGEST" ]; then
+          if [[ -n "$WEB_DIGEST" && "$WEB_DIGEST" != "NA" ]]; then
             echo "Verifying Web image digest..."
-            FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_WEB }}:latest"
+            FULL_IMAGE="${{ env.REGISTRY }}${{ env.IMAGE_WEB }}:latest"
             PULLED_WEB_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $FULL_IMAGE | cut -d'@' -f2)
-            if [ "$PULLED_WEB_DIGEST" != "$WEB_DIGEST" ]; then
+            if [[ "$PULLED_WEB_DIGEST" != "$WEB_DIGEST" ]]; then
               echo "ERROR: Web digest mismatch! Expected $WEB_DIGEST but got $PULLED_WEB_DIGEST"
               exit 1
             fi

@@ -1,4 +1,5 @@
-name: CI
+name: Build
+# Build the images
 on:
   push:
     branches: [ main ]
@@ -23,14 +24,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-      attestations: write
       packages: write      # Required to push to GHCR
-      security-events: write # Required to upload Trivy results to GitHub Security tab
-
-    outputs:
-      # These will be empty strings if the steps are skipped
-      GRPC_DIGEST: ${{ steps.build-grpc.outputs.digest }}
-      WEB_DIGEST: ${{ steps.build-web.outputs.digest }}
 
     steps:
       - uses: actions/checkout@v6
@@ -51,6 +45,7 @@ jobs:
           echo "WEB_VER=v2.0.2" >> $GITHUB_OUTPUT
           echo "GRPC_BLD_MSG=Gold_Chainguard" >> $GITHUB_OUTPUT
           echo "WEB_BLD_MSG=Gold_Chainguard" >> $GITHUB_OUTPUT
+          echo "BLD_NMBR=${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -62,7 +57,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # --- gRPC Build, Scan, and Push ---
+      # --- gRPC Build, and Push ---
       - name: Build and Push gRPC Image
         if: |
           steps.changes.outputs.grpc == 'true' ||
@@ -76,31 +71,14 @@ jobs:
           load: false # Push directly, Trivy will pull from GHCR to scan
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:${{ steps.vars.outputs.GRPC_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.GRPC_BLD_MSG }}
+            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:${{ steps.vars.outputs.GRPC_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.BLD_NMBR }}-${{ steps.vars.outputs.GRPC_BLD_MSG }}
           build-args: |
             GRPC_VER=${{ steps.vars.outputs.GRPC_VER }}
             IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
             GRPC_BLD_MSG=${{ steps.vars.outputs.GRPC_BLD_MSG }}
+            BLD_NMBR=${{ steps.vars.outputs.BLD_NMBR }}
 
-      - name: Run Trivy Scan (gRPC)
-        id: scan-grpc
-        if: steps.build-grpc.outcome != 'skipped'
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest'
-          format: 'sarif'
-          output: 'trivy-results-grpc.sarif'
-          severity: 'CRITICAL,HIGH'
-
-      # Upload grpc results to GitHub Security tab
-      - name: Upload grpc results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
-        if: always() && steps.scan-grpc.outcome != 'skipped'
-        with:
-          sarif_file: 'trivy-results-grpc.sarif'
-          category: 'grpc-scan-results'
-
-      # --- Web Build, Scan, and Push ---
+      # --- Web Build, and Push ---
       - name: Build and Push Web Image
         if: |
           steps.changes.outputs.web == 'true' ||
@@ -111,56 +89,34 @@ jobs:
           context: .
           file: ./web/Dockerfile
           push: true
-          load: false # Push directly, Trivy will pull from GHCR to scan
+          load: false # Push directly
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:${{ steps.vars.outputs.WEB_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.WEB_BLD_MSG }}
+            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:${{ steps.vars.outputs.WEB_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.BLD_NMBR }}-${{ steps.vars.outputs.WEB_BLD_MSG }}
           build-args: |
             WEB_VER=${{ steps.vars.outputs.WEB_VER }}
             IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
             WEB_BLD_MSG=${{ steps.vars.outputs.WEB_BLD_MSG }}
+            BLD_NMBR=${{ steps.vars.outputs.BLD_NMBR }}
 
-      - name: Run Trivy Scan (Web)
-        id: scan-web
-        if: steps.build-web.outcome != 'skipped'
-        uses: aquasecurity/trivy-action@v0.36.0
+      # --- Generate json with built digests ---
+      - name: Generate Digests JSON
+        id: store-digests
+        if: steps.build-grpc.outcome != 'skipped' || steps.build-web.outcome != 'skipped'
+        run: |
+          # Get digests from build steps
+          cat <<EOF > digests.json
+          {
+            "grpc-digest": "${{ steps.build-grpc.outputs.digest || 'NA' }}",
+            "web-digest": "${{ steps.build-web.outputs.digest || 'NA' }}"
+          }
+          EOF
+
+      - name: Upload Digests Artifact
+        if: steps.store-digests.outcome == 'success'
+        uses: actions/upload-artifact@v6
         with:
-          image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest'
-          format: 'sarif'
-          output: 'trivy-results-web.sarif'
-          severity: 'CRITICAL,HIGH'
-
-      # Upload web results to GitHub Security tab
-      - name: Upload web results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
-        if: always() && steps.scan-web.outcome != 'skipped'
-        with:
-          sarif_file: 'trivy-results-web.sarif'
-          category: 'web-scan-results'
-
-      # --- Attestations (Updated for GHCR) ---
-      - name: Attest gRPC Image
-        if: steps.scan-grpc.outcome == 'success'
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}
-          subject-digest: ${{ steps.build-grpc.outputs.digest }}
-
-      - name: Attest Web Image
-        if: steps.scan-web.outcome == 'success'
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
-          subject-digest: ${{ steps.build-web.outputs.digest }}
-
-  trigger-tests:
-    needs: build
-    # Trigger even if one build was skipped, but only if at least one succeeded
-    if: |
-      (needs.build.result == 'success') &&
-      (needs.build.outputs.GRPC_DIGEST != '' || needs.build.outputs.WEB_DIGEST != '')
-    uses: ./.github/workflows/test.yml
-    with:
-      GRPC_DIGEST: ${{ needs.build.outputs.GRPC_DIGEST || '' }}
-      WEB_DIGEST: ${{ needs.build.outputs.WEB_DIGEST || '' }}
-    secrets: inherit
+          name: upload-image-digests
+          path: digests.json
+          # Optional: Keep it for a short time to save storage
+          retention-days: 1

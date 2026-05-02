@@ -66,10 +66,11 @@ FROM cgr.dev/chainguard/glibc-dynamic:latest AS runtime
 ARG GRPC_VER=0
 ARG IMAGE_TAG=latest
 ARG GRPC_BLD_MSG=dev
+ARG BLD_NMBR=0
 
 # Metadata for Docker Hub / GitHub
 LABEL org.opencontainers.image.description="Multiple gRPC services to monitor and maintain 6G sustainability KPIs."
-LABEL org.opencontainers.image.version="${GRPC_VER}-${IMAGE_TAG}-${GRPC_BLD_MSG}"
+LABEL org.opencontainers.image.version="${GRPC_VER}-${IMAGE_TAG}-${BLD_NMBR}-${GRPC_BLD_MSG}"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # Execution (nonroot distroless runs as user 65532 by default)

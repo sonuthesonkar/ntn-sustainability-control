@@ -4,7 +4,9 @@
 [![C++](https://img.shields.io/badge/C++-Inference-black)]()
 [![ONNX](https://img.shields.io/badge/ONNX-Temporal_Model-purple)]()
 [![License](https://img.shields.io/badge/License-MIT-green)]()
-[![CI](https://github.com/sonuthesonkar/ntn-sustainability-control/actions/workflows/build.yml/badge.svg)](https://github.com/sonuthesonkar/ntn-sustainability-control/actions)
+[![Security](https://github.com/sonuthesonkar/ntn-sustainability-control/actions/workflows/security-scan.yml/badge.svg)](https://github.com/sonuthesonkar/ntn-sustainability-control/actions)
+[![Test](https://github.com/sonuthesonkar/ntn-sustainability-control/actions/workflows/test.yml/badge.svg)](https://github.com/sonuthesonkar/ntn-sustainability-control/actions)
+
 
 A distributed control-layer prototype exploring a contrarian premise:
 
