@@ -25,35 +25,19 @@ runs:
   steps:
     - shell: bash
       run: |
-        # 1. Resolve Target Digest
+        # 1. Populate tags list to update
+        update_tags=()
+        update_tags+=("-t ${{ inputs.registry }}${{ inputs.image_name }}:latest")
+        
+        # 2. If input is a specific digest, include it as a tag to "pin" the update
         if [[ "${{ inputs.tag_or_digest }}" == @* ]]; then
-          TARGET_DIGEST="${{ inputs.tag_or_digest }}"
-          TARGET_DIGEST="${TARGET_DIGEST#@}"
-        else
-          TARGET_DIGEST=$(docker buildx imagetools inspect "${{ inputs.registry }}${{ inputs.image_name }}:latest" --format "{{.Manifest.Digest}}")
+          update_tags+=("-t ${{ inputs.registry }}${{ inputs.image_name }}${{ inputs.tag_or_digest }}")
         fi
 
-        # 2. Get All Tags
-        ALL_TAGS=$(curl -s -u "${{ github.actor }}:${{ inputs.github_token }}" \
-          "https://${{ inputs.registry }}v2/${{ inputs.image_name }}/tags/list" | jq -r '.tags[]')
-
-        # 3. Filter Matching Tags
-        MATCHING_TAGS=()
-        for TAG in $ALL_TAGS; do
-          TAG_DIGEST=$(docker buildx imagetools inspect "${{ inputs.registry }}${{ inputs.image_name }}:$TAG" --format "{{.Manifest.Digest}}" 2>/dev/null)
-          if [ "$TAG_DIGEST" == "$TARGET_DIGEST" ]; then
-            MATCHING_TAGS+=("-t ${{ inputs.registry }}${{ inputs.image_name }}:$TAG")
-          fi
-        done
-
-        # 4. Apply Update
-        if [ ${#MATCHING_TAGS[@]} -gt 0 ]; then
-          docker buildx imagetools create \
-            "${MATCHING_TAGS[@]}" \
-            --annotation "index:org.opencontainers.image.description=${{ inputs.description }} (Trivy scan - ${{ inputs.scan_outcome }})" \
-            --annotation "index:compliance.trivy.status=${{ inputs.scan_outcome }}" \
-            --annotation "index:compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-            "${{ inputs.registry }}${{ inputs.image_name }}@$TARGET_DIGEST"
-        else
-          echo "No matching tags found for digest $TARGET_DIGEST. Skipping update."
-        fi
+        # 3. Create the new manifest using :latest as the source
+        docker buildx imagetools create \
+          "${update_tags[@]}" \
+          --annotation "index:org.opencontainers.image.description=${{ inputs.description }} (Trivy scan - ${{ inputs.scan_outcome }})" \
+          --annotation "index:compliance.trivy.status=${{ inputs.scan_outcome }}" \
+          --annotation "index:compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+          "${{ inputs.registry }}${{ inputs.image_name }}:latest"
