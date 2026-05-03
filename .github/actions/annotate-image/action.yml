@@ -29,15 +29,10 @@ runs:
         update_tags=()
         update_tags+=("-t ${{ inputs.registry }}${{ inputs.image_name }}:latest")
         
-        # 2. If input is a specific digest, include it as a tag to "pin" the update
-        if [[ "${{ inputs.tag_or_digest }}" == @* ]]; then
-          update_tags+=("-t ${{ inputs.registry }}${{ inputs.image_name }}${{ inputs.tag_or_digest }}")
-        fi
-
-        # 3. Create the new manifest using :latest as the source
+        # 2. Create the new manifest
         docker buildx imagetools create \
           "${update_tags[@]}" \
           --annotation "index:org.opencontainers.image.description=${{ inputs.description }} (Trivy scan - ${{ inputs.scan_outcome }})" \
           --annotation "index:compliance.trivy.status=${{ inputs.scan_outcome }}" \
           --annotation "index:compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-          "${{ inputs.registry }}${{ inputs.image_name }}:latest"
+          "${{ inputs.registry }}${{ inputs.image_name }}${{ inputs.tag_or_digest }}"
