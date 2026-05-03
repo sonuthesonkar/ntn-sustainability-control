@@ -127,13 +127,14 @@ jobs:
       # Update grPC image with scan results
       - name: Update gRPC image metadata with trivy scan results
         if: always() && steps.scan-grpc.outcome != 'skipped'
-        run: |
-          docker buildx imagetools create \
-            --tag ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}${{ env.GRPC_TAG }} \
-            --annotation "index:org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs. (Trivy scan - ${{ steps.scan-grpc.outcome }})" \
-            --annotation "index:compliance.trivy.status=${{ steps.scan-grpc.outcome }}" \
-            --annotation "index:compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}${{ env.GRPC_TAG }}
+        uses: ./.github/actions/annotate-image
+        with:
+          registry: ${{ env.REGISTRY }}
+          image_name: ${{ env.IMAGE_NAME_GRPC }}
+          tag_or_digest: ${{ env.GRPC_TAG }}
+          description: "Multiple gRPC services for 6G sustainability KPIs."
+          scan_outcome: ${{ steps.scan-grpc.outcome }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       # Scan web image
       - name: Scan Web Image
@@ -167,13 +168,14 @@ jobs:
       # Update web image with scan results
       - name: Update web image metadata with trivy scan results
         if: always() && steps.scan-web.outcome != 'skipped'
-        run: |
-          docker buildx imagetools create \
-            --tag ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}${{ env.WEB_TAG }} \
-            --annotation "index:org.opencontainers.image.description=NTN Sustainability Control - Web GUI (Trivy scan - ${{ steps.scan-web.outcome }})" \
-            --annotation "index:compliance.trivy.status=${{ steps.scan-web.outcome }}" \
-            --annotation "index:compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}${{ env.WEB_TAG }}
+        uses: ./.github/actions/annotate-image
+        with:
+          registry: ${{ env.REGISTRY }}
+          image_name: ${{ env.IMAGE_NAME_WEB }}
+          tag_or_digest: ${{ env.WEB_TAG }}
+          description: "NTN Sustainability Control - Web GUI"
+          scan_outcome: ${{ steps.scan-web.outcome }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       # --- Attestations ---
       - name: Attest gRPC Image

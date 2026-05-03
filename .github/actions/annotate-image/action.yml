@@ -1,0 +1,59 @@
+name: 'Annotate Image Tags'
+description: 'Finds all tags for a digest and applies OCI annotations'
+inputs:
+  registry:
+    description: 'Registry URL (e.g., ghcr.io/)'
+    required: true
+  image_name:
+    description: 'Image name/path'
+    required: true
+  tag_or_digest:
+    description: 'Target tag (:latest) or digest (@sha256:...)'
+    required: true
+  description:
+    description: 'The description annotation value'
+    required: true
+  scan_outcome:
+    description: 'The outcome of the security scan'
+    required: true
+  github_token:
+    description: 'GITHUB_TOKEN with package write access'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: |
+        # 1. Resolve Target Digest
+        if [[ "${{ inputs.tag_or_digest }}" == @* ]]; then
+          TARGET_DIGEST="${{ inputs.tag_or_digest }}"
+          TARGET_DIGEST="${TARGET_DIGEST#@}"
+        else
+          TARGET_DIGEST=$(docker buildx imagetools inspect "${{ inputs.registry }}${{ inputs.image_name }}:latest" --format "{{.Manifest.Digest}}")
+        fi
+
+        # 2. Get All Tags
+        ALL_TAGS=$(curl -s -u "${{ github.actor }}:${{ inputs.github_token }}" \
+          "https://${{ inputs.registry }}v2/${{ inputs.image_name }}/tags/list" | jq -r '.tags[]')
+
+        # 3. Filter Matching Tags
+        MATCHING_TAGS=()
+        for TAG in $ALL_TAGS; do
+          TAG_DIGEST=$(docker buildx imagetools inspect "${{ inputs.registry }}${{ inputs.image_name }}:$TAG" --format "{{.Manifest.Digest}}" 2>/dev/null)
+          if [ "$TAG_DIGEST" == "$TARGET_DIGEST" ]; then
+            MATCHING_TAGS+=("-t ${{ inputs.registry }}${{ inputs.image_name }}:$TAG")
+          fi
+        done
+
+        # 4. Apply Update
+        if [ ${#MATCHING_TAGS[@]} -gt 0 ]; then
+          docker buildx imagetools create \
+            "${MATCHING_TAGS[@]}" \
+            --annotation "index:org.opencontainers.image.description=${{ inputs.description }} (Trivy scan - ${{ inputs.scan_outcome }})" \
+            --annotation "index:compliance.trivy.status=${{ inputs.scan_outcome }}" \
+            --annotation "index:compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            "${{ inputs.registry }}${{ inputs.image_name }}@$TARGET_DIGEST"
+        else
+          echo "No matching tags found for digest $TARGET_DIGEST. Skipping update."
+        fi

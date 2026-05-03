@@ -43,7 +43,7 @@ jobs:
         if: github.event_name == 'workflow_run'
         run: |
           # Use GitHub CLI to check if the Build produced an artifact for this commit
-          HAS_ARTIFACT=$(gh api repos/${{ github.repository }}/actions/runs --jq ".workflow_runs[] | select(.head_sha==\"${{ github.event.workflow_run.head_sha }}\" and .name==\"Build\") | .id" | xargs -I {} gh api repos/${{ github.repository }}/actions/runs/{}/artifacts --jq '.artifacts[] | select(.name=="upload-image-digests")')
+          HAS_ARTIFACT=$(gh api "repos/${{ github.repository }}/actions/workflows/build.yml/runs?head_sha=${{ github.event.workflow_run.head_sha }}" --jq ".workflow_runs[0].id" | xargs -I {} gh api repos/${{ github.repository }}/actions/runs/{}/artifacts --jq '.artifacts[] | select(.name=="upload-image-digests")')
           
           if [[ -z "$HAS_ARTIFACT" ]]; then
             echo "No new images were built for this commit. Skipping tests."
