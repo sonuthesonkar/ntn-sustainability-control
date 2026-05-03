@@ -78,6 +78,11 @@ jobs:
           file: ./grpc/Dockerfile
           push: true
           load: false # Push directly, Trivy will pull from GHCR to scan
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs.
+          annotations: |
+            org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs.
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:${{ steps.vars.outputs.GRPC_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.BLD_NMBR }}-${{ steps.vars.outputs.GRPC_BLD_MSG }}
@@ -99,6 +104,11 @@ jobs:
           file: ./web/Dockerfile
           push: true
           load: false # Push directly
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=NTN Sustainability Control - Web GUI
+          annotations: |
+            org.opencontainers.image.description=NTN Sustainability Control - Web GUI
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:${{ steps.vars.outputs.WEB_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.BLD_NMBR }}-${{ steps.vars.outputs.WEB_BLD_MSG }}
@@ -132,7 +142,7 @@ jobs:
 
       # Update common status
       - name: Update Unified Pipeline Status
-        if: always()
+        if: always() && (steps.build-grpc.outcome != 'skipped' || steps.build-web.outcome != 'skipped')
         run: |
           # Use the head_sha from the trigger or the current sha
           SHA=${{ github.event.workflow_run.head_sha || github.sha }}
@@ -141,6 +151,6 @@ jobs:
             -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
             -f context="Full-Pipeline-Sequence" \
             -f description="Stage: ${{ github.workflow }} is ${{ job.status }}" \
-            -f target_url="https://github.com/{{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
