@@ -119,17 +119,20 @@ jobs:
           path: trivy-results-grpc.sarif # Report location 
           retention-days: 15
 
+      # Setup buildx to update image description annotation
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Update grPC image with scan results
       - name: Update gRPC image metadata with trivy scan results
         if: always() && steps.scan-grpc.outcome != 'skipped'
         run: |
-          docker run --rm \
-            -v /home/runner/.docker/config.json:/root/.docker/config.json \
-            gcr.io/go-containerregistry/crane mutate \
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}${{ env.GRPC_TAG }} \
-            --annotation "org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs. (Trivy scan - ${{ steps.scan-grpc.outcome }})" \
-            --label "org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs. (Trivy scan - ${{ steps.scan-grpc.outcome }})" \
-            --label "compliance.trivy.status=${{ steps.scan-grpc.outcome }}" \
-            --label "compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}${{ env.GRPC_TAG }} \
+            --annotation "index:org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs. (Trivy scan - ${{ steps.scan-grpc.outcome }})" \
+            --annotation "index:compliance.trivy.status=${{ steps.scan-grpc.outcome }}" \
+            --annotation "index:compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}${{ env.GRPC_TAG }}
 
       # Scan web image
       - name: Scan Web Image
@@ -160,17 +163,16 @@ jobs:
           path: trivy-results-web.sarif # Report location 
           retention-days: 15
 
+      # Update web image with scan results
       - name: Update web image metadata with trivy scan results
         if: always() && steps.scan-web.outcome != 'skipped'
         run: |
-          docker run --rm \
-            -v /home/runner/.docker/config.json:/root/.docker/config.json \
-            gcr.io/go-containerregistry/crane mutate \
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}${{ env.WEB_TAG }} \
-            --annotation "org.opencontainers.image.description=NTN Sustainability Control - Web GUI (Trivy scan - ${{ steps.scan-web.outcome }})" \
-            --label "org.opencontainers.image.description=NTN Sustainability Control - Web GUI (Trivy scan - ${{ steps.scan-web.outcome }})" \
-            --label "compliance.trivy.status=${{ steps.scan-web.outcome }}" \
-            --label "compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}${{ env.WEB_TAG }} \
+            --annotation "index:org.opencontainers.image.description=NTN Sustainability Control - Web GUI (Trivy scan - ${{ steps.scan-web.outcome }})" \
+            --annotation "index:compliance.trivy.status=${{ steps.scan-web.outcome }}" \
+            --annotation "index:compliance.trivy.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}${{ env.WEB_TAG }}
 
       # --- Attestations ---
       - name: Attest gRPC Image
