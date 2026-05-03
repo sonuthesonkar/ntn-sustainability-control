@@ -1,5 +1,13 @@
 name: Build
 # Build the images
+
+run-name: >-
+  ${{ github.workflow }}: 
+  ${{ github.event_name }} 
+  - # ${{ github.event.workflow_run.run_number || '0' }}
+  - at ${{ github.run_attempt }}
+  - sha [${{ github.event.workflow_run.head_sha || github.sha }}]
+
 on:
   push:
     branches: [ main ]
@@ -25,6 +33,7 @@ jobs:
       id-token: write
       contents: read
       packages: write      # Required to push to GHCR
+      statuses: write
 
     steps:
       - uses: actions/checkout@v6
@@ -120,3 +129,18 @@ jobs:
           path: digests.json
           # Optional: Keep it for a short time to save storage
           retention-days: 1
+
+      # Update common status
+      - name: Update Unified Pipeline Status
+        if: always()
+        run: |
+          # Use the head_sha from the trigger or the current sha
+          SHA=${{ github.event.workflow_run.head_sha || github.sha }}
+          
+          gh api repos/${{ github.repository }}/statuses/$SHA \
+            -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
+            -f context="Full-Pipeline-Sequence" \
+            -f description="Stage: ${{ github.workflow }} is ${{ job.status }}" \
+            -f target_url="https://github.com/{{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
