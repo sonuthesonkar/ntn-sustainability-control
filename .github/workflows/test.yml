@@ -166,7 +166,10 @@ jobs:
 
       - name: Final Status Notification
         if: steps.upload-reports.outcome != 'skipped'
-        run: echo "Tests finished and results uploaded."
+        run: |
+          echo "### Tests result - ${{ steps.run-tests.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "* **gRPC image**: [${{ env.IMAGE_GRPC }}](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_GRPC }})" >> $GITHUB_STEP_SUMMARY
+          echo "* **Web image**: [${{ env.IMAGE_WEB }}](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_WEB }})" >> $GITHUB_STEP_SUMMARY
 
       # Update common status
       - name: Update Unified Pipeline Status
