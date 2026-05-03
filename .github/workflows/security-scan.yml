@@ -33,6 +33,7 @@ jobs:
       id-token: write
       attestations: write
       statuses: write
+      packages: write
     
     steps:
       - name: Check if images were built
