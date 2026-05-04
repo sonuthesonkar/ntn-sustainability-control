@@ -175,3 +175,17 @@ jobs:
 
           echo "---" >> $GITHUB_STEP_SUMMARY
 
+      # Update common status
+      - name: Update Unified Pipeline Status
+        if: always() && (steps.build-grpc.outcome != 'skipped' || steps.build-web.outcome != 'skipped')
+        run: |
+          # Use the head_sha from the trigger or the current sha
+          SHA=${{ github.event.workflow_run.head_sha || github.sha }}
+          
+          gh api repos/${{ github.repository }}/statuses/$SHA \
+            -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
+            -f context="${{ github.workflow }} / ${{ github.job }} (${{ github.event_name }})" \
+            -f description="${{ job.status == 'success' && 'Successful' || 'Failed' }}" \
+            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
