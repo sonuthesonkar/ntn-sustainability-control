@@ -57,6 +57,9 @@ jobs:
           echo "BLD_NMBR=${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
+        if: |
+          steps.changes.outputs.grpc == 'true' || steps.changes.outputs.web == 'true' ||
+          (github.event_name == 'workflow_dispatch' && inputs.force_build == true)
         uses: docker/setup-buildx-action@v4
 
       - name: Login to GHCR
@@ -140,17 +143,35 @@ jobs:
           # Optional: Keep it for a short time to save storage
           retention-days: 1
 
-      # Update common status
-      - name: Update Unified Pipeline Status
+      # --- Show summary ---
+      - name: Summary Status
         if: always() && (steps.build-grpc.outcome != 'skipped' || steps.build-web.outcome != 'skipped')
         run: |
-          # Use the head_sha from the trigger or the current sha
-          SHA=${{ github.event.workflow_run.head_sha || github.sha }}
-          
-          gh api repos/${{ github.repository }}/statuses/$SHA \
-            -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
-            -f context="Full-Pipeline-Sequence" \
-            -f description="Stage: ${{ github.workflow }} is ${{ job.status }}" \
-            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Status Summary" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+
+          # gRPC Section
+          if [[ "${{ steps.build-grpc.outcome }}" == 'success' ]]; then
+            grpc_tag="${{ steps.build-grpc.outputs.digest }}"
+            echo "* **gRPC image**:" >> $GITHUB_STEP_SUMMARY 
+            echo "  * Status - ✅ Successful" >> $GITHUB_STEP_SUMMARY
+            echo "  * [${{ env.IMAGE_NAME_GRPC }}:$grpc_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_GRPC }}/?tag=$grpc_tag)" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ steps.build-grpc.outcome }}" != 'skipped' ]]; then
+            echo "* **gRPC image**:" >> $GITHUB_STEP_SUMMARY 
+            echo "  * Status - ❌ Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Web Section
+          if [[ "${{ steps.build-web.outcome }}" == 'success' ]]; then
+            web_tag="${{ steps.build-web.outputs.digest }}"
+            echo "* **Web image**:" >> $GITHUB_STEP_SUMMARY 
+            echo "  * Status - ✅ Successful" >> $GITHUB_STEP_SUMMARY
+            echo "  * [${{ env.IMAGE_NAME_WEB }}:$web_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_WEB }}/?tag=$web_tag)" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ steps.build-web.outcome }}" != 'skipped' ]]; then
+            echo "* **Web image**:" >> $GITHUB_STEP_SUMMARY 
+            echo "  * Status - ❌ Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "---" >> $GITHUB_STEP_SUMMARY
+

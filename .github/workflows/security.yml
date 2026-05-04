@@ -4,7 +4,7 @@ name: Security
 run-name: >-
   ${{ github.workflow }}: 
   ${{ github.event_name }} 
-  - # ${{ github.event.workflow_run.run_number || '0' }} -> ${{ github.run_number }}
+  - # ${{ github.event.workflow_run.run_number || '0' }} >> ${{ github.run_number }}
   - at ${{ github.run_attempt }}
   - sha [${{ github.event.workflow_run.head_sha || github.sha }}]
 
@@ -23,7 +23,7 @@ env:
   IMAGE_NAME_WEB: ntn-sustainability-control-web
 
 jobs:
-  scan:
+  v-scan:
     runs-on: ubuntu-latest
     # Only skip if workflow_run is the trigger AND it failed. Manual/Schedule will still run.
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
@@ -164,6 +164,36 @@ jobs:
           subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
           subject-digest: ${{ env.WEB_DIGEST }}
 
+      # --- Show summary ---
+      - name: Summary Status
+        if: always() && (steps.scan-grpc.outcome != 'skipped' || steps.scan-web.outcome != 'skipped')
+        run: |
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "### Vulnerability Scan Status Summary" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+
+          # gRPC Section
+          if [[ "${{ steps.scan-grpc.outcome }}" == 'success' ]]; then
+            echo "* **gRPC image**:" >> $GITHUB_STEP_SUMMARY 
+            echo "  * Status - ✅ Successful" >> $GITHUB_STEP_SUMMARY
+            echo "  * [${{ env.IMAGE_NAME_GRPC }}:${{ env.GRPC_TAG }}](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_GRPC }}/?tag=${{ env.GRPC_TAG }})" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ steps.scan-grpc.outcome }}" != 'skipped' ]]; then
+            echo "* **gRPC image**:" >> $GITHUB_STEP_SUMMARY 
+            echo "  * Status - ❌ Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Web Section
+          if [[ "${{ steps.scan-web.outcome }}" == 'success' ]]; then
+            echo "* **Web image**:" >> $GITHUB_STEP_SUMMARY 
+            echo "  * Status - ✅ Successful" >> $GITHUB_STEP_SUMMARY
+            echo "  * [${{ env.IMAGE_NAME_WEB }}:${{ env.WEB_TAG }}](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_WEB }}/?tag=${{ env.WEB_TAG }})" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ steps.scan-web.outcome }}" != 'skipped' ]]; then
+            echo "* **Web image**:" >> $GITHUB_STEP_SUMMARY 
+            echo "  * Status - ❌ Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "---" >> $GITHUB_STEP_SUMMARY
+
       # Update common status
       - name: Update Unified Pipeline Status
         if: always() && (steps.scan-grpc.outcome != 'skipped' || steps.scan-web.outcome != 'skipped')
@@ -173,8 +203,8 @@ jobs:
           
           gh api repos/${{ github.repository }}/statuses/$SHA \
             -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
-            -f context="Full-Pipeline-Sequence" \
-            -f description="Stage: ${{ github.workflow }} is ${{ job.status }}" \
+            -f context="${{ github.workflow }} / ${{ github.job }} (${{ github.event_name }})" \
+            -f description="${{ job.status == 'success' && 'Successful' || 'Failed' }}" \
             -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

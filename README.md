@@ -4,7 +4,7 @@
 [![C++](https://img.shields.io/badge/C++-Inference-black)]()
 [![ONNX](https://img.shields.io/badge/ONNX-Temporal_Model-purple)]()
 [![License](https://img.shields.io/badge/License-MIT-green)]()
-[![Security](https://github.com/sonuthesonkar/ntn-sustainability-control/actions/workflows/security-scan.yml/badge.svg)](https://github.com/sonuthesonkar/ntn-sustainability-control/actions)
+[![Security](https://github.com/sonuthesonkar/ntn-sustainability-control/actions/workflows/security.yml/badge.svg)](https://github.com/sonuthesonkar/ntn-sustainability-control/actions)
 [![Test](https://github.com/sonuthesonkar/ntn-sustainability-control/actions/workflows/test.yml/badge.svg)](https://github.com/sonuthesonkar/ntn-sustainability-control/actions)
 
 

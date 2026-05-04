@@ -4,7 +4,7 @@ name: Test
 run-name: >-
   ${{ github.workflow }}: 
   ${{ github.event_name }} 
-  - # ${{ github.event.workflow_run.run_number || '0' }} -> ${{ github.run_number }}
+  - # ${{ github.event.workflow_run.run_number || '0' }} >> ${{ github.run_number }}
   - at ${{ github.run_attempt }}
   - sha [${{ github.event.workflow_run.head_sha || github.sha }}]
 
@@ -28,7 +28,7 @@ env:
   IMAGE_WEB: ntn-sustainability-control-web
 
 jobs:
-  test-and-upload-reports:
+  e2e-test:
     runs-on: ubuntu-latest
     # Only skip if workflow_run is the trigger AND it failed. Manual/Schedule will still run.
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
@@ -165,11 +165,28 @@ jobs:
           retention-days: 30
 
       - name: Final Status Notification
-        if: steps.upload-reports.outcome != 'skipped'
+        if: steps.run-tests.outcome != 'skipped'
         run: |
-          echo "### Tests result - ${{ steps.run-tests.outcome }}" >> $GITHUB_STEP_SUMMARY
-          echo "* **gRPC image**: [${{ env.IMAGE_GRPC }}](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_GRPC }})" >> $GITHUB_STEP_SUMMARY
-          echo "* **Web image**: [${{ env.IMAGE_WEB }}](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_WEB }})" >> $GITHUB_STEP_SUMMARY
+          if [[ "$GRPC_DIGEST" == sha* ]]; then
+            grpc_tag="$GRPC_DIGEST"
+          else
+            grpc_tag="latest"
+          fi
+
+          if [[ "$WEB_DIGEST" == sha* ]]; then
+            web_tag="$WEB_DIGEST"
+          else
+            web_tag="latest"
+          fi
+
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          ---
+          ### E2E Test Result - ${{ steps.run-tests.outcome == 'success' && '✅ Passed' || '❌ Failed' }}
+          ---
+          * **gRPC image**: [${{ env.IMAGE_GRPC }}:$grpc_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_GRPC }}/?tag=$grpc_tag)
+          * **Web image**: [${{ env.IMAGE_WEB }}:$web_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_WEB }}/?tag=$web_tag)
+          ---
+          EOF
 
       # Update common status
       - name: Update Unified Pipeline Status
@@ -180,8 +197,8 @@ jobs:
           
           gh api repos/${{ github.repository }}/statuses/$SHA \
             -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
-            -f context="Full-Pipeline-Sequence" \
-            -f description="Stage: ${{ github.workflow }} is ${{ job.status }}" \
+            -f context="${{ github.workflow }} / ${{ github.job }} (${{ github.event_name }})" \
+            -f description="${{ job.status == 'success' && 'Successful' || 'Failed' }}" \
             -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
