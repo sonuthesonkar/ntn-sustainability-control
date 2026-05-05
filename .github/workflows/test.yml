@@ -80,6 +80,7 @@ jobs:
       # Load images (if available) and get metadata
       - name: Load Images
         if: github.event_name != 'workflow_run' || steps.download-images.outcome == 'success'
+        id: load-images
         run: |
           if ls ./tmp/*.tar 1> /dev/null 2>&1; then
             for image in ./tmp/*.tar; do
@@ -113,6 +114,7 @@ jobs:
           fi
 
       - name: Start Stack
+        if: github.event_name != 'workflow_run' || steps.load-images.outcome == 'success'
         id: start-stack
         run: |    
           echo "Starting stack..."
