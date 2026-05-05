@@ -13,11 +13,12 @@ on:
     branches: [ main ]
   workflow_dispatch:  # Allows manual trigger
     inputs:
-      force_build:
-        description: 'Force a full build of both images'
+      info:
+        description: '⚠️ Force a full build of both images.'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - "Full build"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -32,7 +33,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-      packages: write      # Required to push to GHCR
       statuses: write
 
     steps:
@@ -59,133 +59,86 @@ jobs:
       - name: Set up Docker Buildx
         if: |
           steps.changes.outputs.grpc == 'true' || steps.changes.outputs.web == 'true' ||
-          (github.event_name == 'workflow_dispatch' && inputs.force_build == true)
+          github.event_name == 'workflow_dispatch'
         uses: docker/setup-buildx-action@v4
 
-      - name: Login to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # --- gRPC Build, and Push ---
-      - name: Build and Push gRPC Image
+      # --- gRPC Build, and Save ---
+      - name: Build and Save gRPC Image
         if: |
-          steps.changes.outputs.grpc == 'true' ||
-          (github.event_name == 'workflow_dispatch' && inputs.force_build == true)
+          steps.changes.outputs.grpc == 'true' || github.event_name == 'workflow_dispatch'
         id: build-grpc
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./grpc/Dockerfile
-          push: true
-          load: false # Push directly, Trivy will pull from GHCR to scan
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs.
-          annotations: |
-            org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs.
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:${{ steps.vars.outputs.GRPC_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.BLD_NMBR }}-${{ steps.vars.outputs.GRPC_BLD_MSG }}
           build-args: |
             GRPC_VER=${{ steps.vars.outputs.GRPC_VER }}
             IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
             GRPC_BLD_MSG=${{ steps.vars.outputs.GRPC_BLD_MSG }}
             BLD_NMBR=${{ steps.vars.outputs.BLD_NMBR }}
+          outputs: type=docker, dest=./tmp/grpc-image.tar
 
-      # --- Web Build, and Push ---
-      - name: Build and Push Web Image
+      # --- Web Build, and Save ---
+      - name: Build and Save Web Image
         if: |
-          steps.changes.outputs.web == 'true' ||
-          (github.event_name == 'workflow_dispatch' && inputs.force_build == true)
+          steps.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch'
         id: build-web
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./web/Dockerfile
-          push: true
-          load: false # Push directly
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.description=NTN Sustainability Control - Web GUI
-          annotations: |
-            org.opencontainers.image.description=NTN Sustainability Control - Web GUI
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:${{ steps.vars.outputs.WEB_VER }}-${{ steps.vars.outputs.IMAGE_TAG }}-${{ steps.vars.outputs.BLD_NMBR }}-${{ steps.vars.outputs.WEB_BLD_MSG }}
           build-args: |
             WEB_VER=${{ steps.vars.outputs.WEB_VER }}
             IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
             WEB_BLD_MSG=${{ steps.vars.outputs.WEB_BLD_MSG }}
             BLD_NMBR=${{ steps.vars.outputs.BLD_NMBR }}
+          outputs: type=docker, dest=./tmp/web-image.tar
 
-      # --- Generate json with built digests ---
-      - name: Generate Digests JSON
-        id: store-digests
-        if: steps.build-grpc.outcome != 'skipped' || steps.build-web.outcome != 'skipped'
-        run: |
-          # Get digests from build steps
-          cat <<EOF > digests.json
-          {
-            "grpc-digest": "${{ steps.build-grpc.outputs.digest || 'NA' }}",
-            "web-digest": "${{ steps.build-web.outputs.digest || 'NA' }}"
-          }
-          EOF
-
-      - name: Upload Digests Artifact
-        if: steps.store-digests.outcome == 'success'
+      - name: Upload Images
+        if: steps.build-grpc.outcome == 'success' || steps.build-web.outcome == 'success'
         uses: actions/upload-artifact@v6
         with:
-          name: upload-image-digests
-          path: digests.json
+          name: upload-images
+          path: ./tmp/*-image.tar
           # Optional: Keep it for a short time to save storage
           retention-days: 1
 
       # --- Show summary ---
       - name: Summary Status
-        if: always() && (steps.build-grpc.outcome != 'skipped' || steps.build-web.outcome != 'skipped')
+        if: always()
         run: |
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "### Build Status Summary" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-
-          # gRPC Section
-          if [[ "${{ steps.build-grpc.outcome }}" == 'success' ]]; then
-            grpc_tag="${{ steps.build-grpc.outputs.digest }}"
-            echo "* **gRPC image**:" >> $GITHUB_STEP_SUMMARY 
-            echo "  * Status - ✅ Successful" >> $GITHUB_STEP_SUMMARY
-            echo "  * [${{ env.IMAGE_NAME_GRPC }}:$grpc_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_GRPC }}/?tag=$grpc_tag)" >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ steps.build-grpc.outcome }}" != 'skipped' ]]; then
-            echo "* **gRPC image**:" >> $GITHUB_STEP_SUMMARY 
-            echo "  * Status - ❌ Failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # Web Section
-          if [[ "${{ steps.build-web.outcome }}" == 'success' ]]; then
-            web_tag="${{ steps.build-web.outputs.digest }}"
-            echo "* **Web image**:" >> $GITHUB_STEP_SUMMARY 
-            echo "  * Status - ✅ Successful" >> $GITHUB_STEP_SUMMARY
-            echo "  * [${{ env.IMAGE_NAME_WEB }}:$web_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_WEB }}/?tag=$web_tag)" >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ steps.build-web.outcome }}" != 'skipped' ]]; then
-            echo "* **Web image**:" >> $GITHUB_STEP_SUMMARY 
-            echo "  * Status - ❌ Failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "---" >> $GITHUB_STEP_SUMMARY
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          ---
+          ### Build Status Summary
+          ---
+          | **Image** | **Status** |
+          |:---------:|:----------:|
+          | gRPC      | ${{ steps.build-grpc.outcome == 'success' && '✅ Passed' || (steps.build-grpc.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed') }} |
+          | Web       | ${{ steps.build-web.outcome == 'success' && '✅ Passed' || (steps.build-web.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed') }} |
+          ---
+          EOF
 
       # Update common status
       - name: Update Unified Pipeline Status
-        if: always() && (steps.build-grpc.outcome != 'skipped' || steps.build-web.outcome != 'skipped')
+        if: always()
         run: |
           # Use the head_sha from the trigger or the current sha
           SHA=${{ github.event.workflow_run.head_sha || github.sha }}
-          
+
+          if [[ ${{ steps.build-grpc.outcome }} == 'skipped' && ${{ steps.build-web.outcome }} == 'skipped' ]]; then
+            desc="Skipped"
+          else
+            desc="${{ job.status == 'success' && 'Successful' || 'Failed' }}"
+          fi
+
           gh api repos/${{ github.repository }}/statuses/$SHA \
             -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
             -f context="${{ github.workflow }} / ${{ github.job }} (${{ github.event_name }})" \
-            -f description="${{ job.status == 'success' && 'Successful' || 'Failed' }}" \
+            -f description="$desc" \
             -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

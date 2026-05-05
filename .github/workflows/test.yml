@@ -1,5 +1,5 @@
 name: Test
-# Test and publish test reports
+# Test and publish test reports, annotate and push images, create attestations
 
 run-name: >-
   ${{ github.workflow }}: 
@@ -17,15 +17,16 @@ on:
 permissions:
   actions: read
   contents: read
-  packages: read # Required to pull from GHCR
+  attestations: write  
+  packages: write # Required to pull from GHCR
   statuses: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Opt into Node.js 24
   REGISTRY: ghcr.io/${{ github.repository_owner }}/
   # Replace with actual GHCR paths (lowercase)
-  IMAGE_GRPC: ntn-sustainability-control-grpc
-  IMAGE_WEB: ntn-sustainability-control-web
+  IMAGE_NAME_GRPC: ntn-sustainability-control-grpc
+  IMAGE_NAME_WEB: ntn-sustainability-control-web
 
 jobs:
   e2e-test:
@@ -43,13 +44,13 @@ jobs:
         if: github.event_name == 'workflow_run'
         run: |
           # Use GitHub CLI to check if the Build produced an artifact for this commit
-          HAS_ARTIFACT=$(gh api "repos/${{ github.repository }}/actions/workflows/build.yml/runs?head_sha=${{ github.event.workflow_run.head_sha }}" --jq ".workflow_runs[0].id" | xargs -I {} gh api repos/${{ github.repository }}/actions/runs/{}/artifacts --jq '.artifacts[] | select(.name=="upload-image-digests")')
+          HAS_ARTIFACT=$(gh api "repos/${{ github.repository }}/actions/workflows/build.yml/runs?head_sha=${{ github.event.workflow_run.head_sha }}" --jq ".workflow_runs[0].id" | xargs -I {} gh api repos/${{ github.repository }}/actions/runs/{}/artifacts --jq '.artifacts[] | select(.name=="upload-images")')
           
           if [[ -z "$HAS_ARTIFACT" ]]; then
             echo "No new images were built for this commit. Skipping tests."
-            echo "DIGESTS_EXIST=false" >> $GITHUB_ENV
+            echo "IMAGES_EXIST=false" >> $GITHUB_ENV
           else
-            echo "DIGESTS_EXIST=true" >> $GITHUB_ENV
+            echo "IMAGES_EXIST=true" >> $GITHUB_ENV
           fi
         env:
           GH_TOKEN: ${{ github.token }}
@@ -63,80 +64,61 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Download digest json (if triggered by workflow_run, else skip)
-      - name: Download Digests from Build
-        if: github.event_name == 'workflow_run' && env.DIGESTS_EXIST == 'true'
+      # Download images (if triggered by workflow_run, else skip)
+      - name: Download Images from Build
+        if: github.event_name == 'workflow_run' && env.IMAGES_EXIST == 'true'
+        id: download-images
         uses: dawidd6/action-download-artifact@v21
         with:
           # Search for the successful run of 'build.yml' for the same commit
           workflow: build.yml
           commit: ${{ github.event.workflow_run.head_sha }}
-          name: upload-image-digests # Name used in the 'upload-artifact' step
+          name: upload-images # Name used in the 'upload-artifact' step
           workflow_conclusion: success
-          path: ./metadata
+          path: ./tmp
 
-      # Get digests (if available), and create tags for scan
-      - name: Extract Digests
-        if: github.event_name != 'workflow_run' || env.DIGESTS_EXIST == 'true'
+      # Load images (if available) and get metadata
+      - name: Load Images
+        if: github.event_name != 'workflow_run' || steps.download-images.outcome == 'success'
         run: |
-          # Check if it's a workflow_run AND the json was actually downloaded and extract digest
-          if [[ "${{ github.event_name }}" == "workflow_run" && -f ./metadata/digests.json ]]; then
-            G_DIGEST=$(jq -r '."grpc-digest"' ./metadata/digests.json)
-            W_DIGEST=$(jq -r '."web-digest"' ./metadata/digests.json)
+          if ls ./tmp/*.tar 1> /dev/null 2>&1; then
+            for image in ./tmp/*.tar; do
+              # Load image
+              docker load --input "$image"
+              
+              # Get metadata
+              image_name=$(basename "$image")
+              
+              if [[ "$image_name" == "grpc-image.tar" ]]; then
+                g_desc=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.description" }}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest)
+                g_ver=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest)
+                
+                echo "AP_GRPC=true" >> $GITHUB_ENV
+                echo "GRPC_DESC=$g_desc" >> $GITHUB_ENV
+                echo "GRPC_VER=$g_ver" >> $GITHUB_ENV
+                echo "GRPC_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+
+              elif [[ "$image_name" == "web-image.tar" ]]; then
+                w_desc=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.description" }}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest)
+                w_ver=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest)
+                
+                echo "AP_WEB=true" >> $GITHUB_ENV
+                echo "WEB_DESC=$w_desc" >> $GITHUB_ENV
+                echo "WEB_VER=$w_ver" >> $GITHUB_ENV
+                echo "WEB_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+              fi
+            done
           else
-            G_DIGEST=NA
-            W_DIGEST=NA
-          fi
-
-          # Set Digest env for Attestations
-          echo "GRPC_DIGEST=$G_DIGEST" >> $GITHUB_ENV
-          echo "WEB_DIGEST=$W_DIGEST" >> $GITHUB_ENV
-
-      - name: Pull Images
-        if: github.event_name != 'workflow_run' || env.DIGESTS_EXIST == 'true'
-        id: pull-images
-        run: |
-          echo "Pulling images from GHCR..."
-          # Note: Ensure docker-compose-prod.yml uses the GHCR image name (including ghcr.io)
-          docker compose -f ./docker-compose-prod.yml pull
-
-      - name: Check Digests
-        if: steps.pull-images.outcome == 'success'
-        id: check-digests
-        run: |  
-          # Fails if any (grpc or web) digest exists, and not 'NA' and doesn't match with pulled images  
-          if [[ -n "$GRPC_DIGEST" && "$GRPC_DIGEST" != "NA" ]]; then
-            echo "Verifying gRPC image digest..."
-            FULL_IMAGE="${{ env.REGISTRY }}${{ env.IMAGE_GRPC }}:latest"
-            PULLED_GRPC_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $FULL_IMAGE | cut -d'@' -f2)
-            if [[ "$PULLED_GRPC_DIGEST" != "$GRPC_DIGEST" ]]; then
-              echo "ERROR: gRPC digest mismatch! Expected $GRPC_DIGEST but got $PULLED_GRPC_DIGEST"
-              exit 1
-            fi
-          else
-            echo "No new gRPC digest built; using existing latest."
-          fi
-
-          if [[ -n "$WEB_DIGEST" && "$WEB_DIGEST" != "NA" ]]; then
-            echo "Verifying Web image digest..."
-            FULL_IMAGE="${{ env.REGISTRY }}${{ env.IMAGE_WEB }}:latest"
-            PULLED_WEB_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $FULL_IMAGE | cut -d'@' -f2)
-            if [[ "$PULLED_WEB_DIGEST" != "$WEB_DIGEST" ]]; then
-              echo "ERROR: Web digest mismatch! Expected $WEB_DIGEST but got $PULLED_WEB_DIGEST"
-              exit 1
-            fi
-          else
-            echo "No new Web digest build; using existing latest."
+            echo "No images found to load, skipping..."
           fi
 
       - name: Start Stack
-        if: steps.check-digests.outcome == 'success'
         id: start-stack
         run: |    
           echo "Starting stack..."
           docker compose -f ./docker-compose-prod.yml up -d --wait
 
-      # --- PLAYWRIGHT TESTS ---
+      # --- Playwright Tests ---
       - name: Run Playwright Tests
         if: steps.start-stack.outcome == 'success'
         id: run-tests
@@ -164,17 +146,70 @@ jobs:
           path: ./playwright/playwright-report # Report location 
           retention-days: 30
 
+      # Setup buildx
+      - name: Set up Docker Buildx
+        if: env.AP_GRPC == 'true' || env.AP_WEB == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      # Annotate and push gRPC image
+      - name: Push gRPC image with Annotation
+        if: env.AP_GRPC == 'true'
+        id: push-grpc
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./grpc/Dockerfile
+          push: true
+          cache-from: type=docker, src=./tmp/grpc-image.tar
+          tags: |
+            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest
+            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:${{ env.GRPC_VER }}
+          annotations: |
+            index:org.opencontainers.image.description=${{ env.GRPC_DESC }} - ${{ env.GRPC_VER }} - Trivy Scan (No critical/high vulnerabilities) - ${{ env.GRPC_DATE }}
+
+      # Annotate and push web image
+      - name: Push web image with Annotation
+        if: env.AP_WEB == 'true'
+        id: push-web
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./web/Dockerfile
+          push: true
+          cache-from: type=docker, src=./tmp/web-image.tar
+          tags: |
+            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest
+            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:${{ env.WEB_VER }}
+          annotations: |
+            index:org.opencontainers.image.description=${{ env.WEB_DESC }} - ${{ env.WEB_VER }} - Trivy Scan (No critical/high vulnerabilities) - ${{ env.WEB_DATE }}
+
+      # --- Attestations ---
+      - name: Attest gRPC Image
+        if: steps.push-grpc.outcome == 'success'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}
+          subject-digest: ${{ steps.push-grpc.outputs.digest }}
+
+      - name: Attest Web Image
+        if: steps.push-web.outcome == 'success'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
+          subject-digest: ${{ steps.push-web.outputs.digest }}
+      
+      # Final status summary
       - name: Final Status Notification
         if: steps.run-tests.outcome != 'skipped'
         run: |
-          if [[ "$GRPC_DIGEST" == sha* ]]; then
-            grpc_tag="$GRPC_DIGEST"
+          if [[ "${{ env.GRPC_VER }}" != "" ]]; then
+            grpc_tag="${{ env.GRPC_VER }}"
           else
             grpc_tag="latest"
           fi
 
-          if [[ "$WEB_DIGEST" == sha* ]]; then
-            web_tag="$WEB_DIGEST"
+          if [[ "${{ env.WEB_VER }}" != "" ]]; then
+            web_tag="${{ env.WEB_VER }}"
           else
             web_tag="latest"
           fi
@@ -183,22 +218,30 @@ jobs:
           ---
           ### E2E Test Result - ${{ steps.run-tests.outcome == 'success' && '✅ Passed' || '❌ Failed' }}
           ---
-          * **gRPC image**: [${{ env.IMAGE_GRPC }}:$grpc_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_GRPC }}/?tag=$grpc_tag)
-          * **Web image**: [${{ env.IMAGE_WEB }}:$web_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_WEB }}/?tag=$web_tag)
+          | **Image** | **URL** |
+          |:---------:|:----------:|
+          | gRPC      | [${{ env.IMAGE_NAME_GRPC }}: $grpc_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_GRPC }}/?tag=$grpc_tag) |
+          | Web       | [${{ env.IMAGE_NAME_WEB }}: $web_tag](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_WEB }}/?tag=$web_tag) |
           ---
           EOF
 
       # Update common status
       - name: Update Unified Pipeline Status
-        if: always() && steps.run-tests.outcome != 'skipped'
+        if: always()
         run: |
           # Use the head_sha from the trigger or the current sha
           SHA=${{ github.event.workflow_run.head_sha || github.sha }}
           
+          if [[ ${{ steps.run-tests.outcome }} == 'skipped' ]]; then
+            desc="Skipped"
+          else
+            desc="${{ job.status == 'success' && 'Successful' || 'Failed' }}"
+          fi
+
           gh api repos/${{ github.repository }}/statuses/$SHA \
             -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
             -f context="${{ github.workflow }} / ${{ github.job }} (${{ github.event_name }})" \
-            -f description="${{ job.status == 'success' && 'Successful' || 'Failed' }}" \
+            -f description="$desc" \
             -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

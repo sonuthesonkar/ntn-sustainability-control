@@ -1,5 +1,5 @@
 name: Security
-# Bi-monthly security scan
+# Build triggered, else bi-monthly security scan
 
 run-name: >-
   ${{ github.workflow }}: 
@@ -31,73 +31,60 @@ jobs:
       contents: read
       security-events: write # To upload results to the Security tab
       id-token: write
-      attestations: write
       statuses: write
-      packages: write
+      packages: read
     
     steps:
       - name: Check if images were built
         if: github.event_name == 'workflow_run'
         run: |
           # Use GitHub CLI to check if the artifact exists in the parent run
-          HAS_ARTIFACT=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/artifacts --jq '.artifacts[] | select(.name=="upload-image-digests")')
+          HAS_ARTIFACT=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/artifacts --jq '.artifacts[] | select(.name=="upload-images")')
           if [[ -z "$HAS_ARTIFACT" ]]; then
             echo "Build was skipped (no changes). Skipping this workflow."
-            echo "DIGESTS_EXIST=false" >> $GITHUB_ENV
+            echo "IMAGES_EXIST=false" >> $GITHUB_ENV
           else
-            echo "DIGESTS_EXIST=true" >> $GITHUB_ENV
+            echo "IMAGES_EXIST=true" >> $GITHUB_ENV
           fi
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
-      # Download digest json (if triggered by workflow_run, else skip)
-      - name: Download Digests
-        if: github.event_name == 'workflow_run' && env.DIGESTS_EXIST == 'true'
+      # Download images (if triggered by workflow_run, else skip)
+      - name: Download Images
+        if: github.event_name == 'workflow_run' && env.IMAGES_EXIST == 'true'
+        id: download-images
         uses: actions/download-artifact@v4
         with:
-          name: upload-image-digests
+          name: upload-images
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
+          path: ./tmp
 
-      # Get digests (if available), and create tags for scan
-      - name: Extract Digests
-        if: github.event_name != 'workflow_run' || env.DIGESTS_EXIST == 'true'
+      # Load images (if available)
+      - name: Load Images
+        if: github.event_name != 'workflow_run' || steps.download-images.outcome == 'success'
         run: |
-          # Check if it's a workflow_run AND the json was actually downloaded and extract digest
-          if [[ "${{ github.event_name }}" == "workflow_run" && -f digests.json ]]; then
-            G_DIGEST=$(jq -r '."grpc-digest"' digests.json)
-            W_DIGEST=$(jq -r '."web-digest"' digests.json)
+          if ls ./tmp/*.tar 1> /dev/null 2>&1; then
+            for image in ./tmp/*.tar; do
+              image_name=$(basename "$image")
+              if [[ "$image_name" == "grpc-image.tar" ]]; then
+                echo "SCAN_GRPC=true" >> $GITHUB_ENV
+              elif [[ "$image_name" == "web-image.tar" ]]; then
+                echo "SCAN_WEB=true" >> $GITHUB_ENV
+              fi
+              docker load --input "$image"
+            done
           else
-            G_DIGEST=NA
-            W_DIGEST=NA
+            echo "No images found to load, skipping..."
           fi
-
-          # Set Digest env for Attestations
-          echo "GRPC_DIGEST=$G_DIGEST" >> $GITHUB_ENV
-          echo "WEB_DIGEST=$W_DIGEST" >> $GITHUB_ENV
-
-          # Populate tags for scan
-          GRPC_TAG=$( [[ "$G_DIGEST" == "NA" ]] && echo ":latest" || echo "@$G_DIGEST" )
-          WEB_TAG=$( [[ "$W_DIGEST" == "NA" ]] && echo ":latest" || echo "@$W_DIGEST" )
-
-          # Set tags env for scan
-          echo "GRPC_TAG=$GRPC_TAG" >> $GITHUB_ENV
-          echo "WEB_TAG=$WEB_TAG" >> $GITHUB_ENV
       
       # Scan gRPC image
       - name: Scan gRPC Image
-        if: github.event_name != 'workflow_run' || (env.GRPC_DIGEST != '' && env.GRPC_DIGEST != 'NA')
+        if: github.event_name != 'workflow_run' || env.SCAN_GRPC == 'true'
         id: scan-grpc
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}${{ env.GRPC_TAG }}'
+          image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest'
           format: 'sarif'
           output: 'trivy-results-grpc.sarif'
           severity: 'CRITICAL,HIGH'
@@ -122,11 +109,11 @@ jobs:
 
       # Scan web image
       - name: Scan Web Image
-        if: github.event_name != 'workflow_run' || (env.WEB_DIGEST != '' && env.WEB_DIGEST != 'NA')
+        if: github.event_name != 'workflow_run' || env.SCAN_WEB == 'true'
         id: scan-web
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}${{ env.WEB_TAG }}'
+          image-ref: '${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest'
           format: 'sarif'
           output: 'trivy-results-web.sarif'
           severity: 'CRITICAL,HIGH'
@@ -149,62 +136,38 @@ jobs:
           path: trivy-results-web.sarif # Report location 
           retention-days: 15
 
-      # --- Attestations ---
-      - name: Attest gRPC Image
-        if: steps.scan-grpc.outcome == 'success' && (env.GRPC_DIGEST != '' && env.GRPC_DIGEST != 'NA')
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}
-          subject-digest: ${{ env.GRPC_DIGEST }}
-
-      - name: Attest Web Image
-        if: steps.scan-web.outcome == 'success' && (env.WEB_DIGEST != '' && env.WEB_DIGEST != 'NA')
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
-          subject-digest: ${{ env.WEB_DIGEST }}
-
       # --- Show summary ---
       - name: Summary Status
-        if: always() && (steps.scan-grpc.outcome != 'skipped' || steps.scan-web.outcome != 'skipped')
+        if: always()
         run: |
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "### Vulnerability Scan Status Summary" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-
-          # gRPC Section
-          if [[ "${{ steps.scan-grpc.outcome }}" == 'success' ]]; then
-            echo "* **gRPC image**:" >> $GITHUB_STEP_SUMMARY 
-            echo "  * Status - ✅ Successful" >> $GITHUB_STEP_SUMMARY
-            echo "  * [${{ env.IMAGE_NAME_GRPC }}:${{ env.GRPC_TAG }}](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_GRPC }}/?tag=${{ env.GRPC_TAG }})" >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ steps.scan-grpc.outcome }}" != 'skipped' ]]; then
-            echo "* **gRPC image**:" >> $GITHUB_STEP_SUMMARY 
-            echo "  * Status - ❌ Failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # Web Section
-          if [[ "${{ steps.scan-web.outcome }}" == 'success' ]]; then
-            echo "* **Web image**:" >> $GITHUB_STEP_SUMMARY 
-            echo "  * Status - ✅ Successful" >> $GITHUB_STEP_SUMMARY
-            echo "  * [${{ env.IMAGE_NAME_WEB }}:${{ env.WEB_TAG }}](https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME_WEB }}/?tag=${{ env.WEB_TAG }})" >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ steps.scan-web.outcome }}" != 'skipped' ]]; then
-            echo "* **Web image**:" >> $GITHUB_STEP_SUMMARY 
-            echo "  * Status - ❌ Failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "---" >> $GITHUB_STEP_SUMMARY
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          ---
+          ### Vulnerability Scan Status Summary
+          ---
+          | **Image** | **Status** |
+          |:---------:|:----------:|
+          | gRPC      | ${{ steps.scan-grpc.outcome == 'success' && '✅ Passed' || (steps.scan-grpc.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed') }} |
+          | Web       | ${{ steps.scan-web.outcome == 'success' && '✅ Passed' || (steps.scan-web.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed') }} |
+          ---
+          EOF
 
       # Update common status
       - name: Update Unified Pipeline Status
-        if: always() && (steps.scan-grpc.outcome != 'skipped' || steps.scan-web.outcome != 'skipped')
+        if: always()
         run: |
           # Use the head_sha from the trigger or the current sha
           SHA=${{ github.event.workflow_run.head_sha || github.sha }}
           
+          if [[ ${{ steps.scan-grpc.outcome }} == 'skipped' && ${{ steps.scan-web.outcome }} == 'skipped' ]]; then
+            desc="Skipped"
+          else
+            desc="${{ job.status == 'success' && 'Successful' || 'Failed' }}"
+          fi
+
           gh api repos/${{ github.repository }}/statuses/$SHA \
             -f state="${{ job.status == 'success' && 'success' || 'failure' }}" \
             -f context="${{ github.workflow }} / ${{ github.job }} (${{ github.event_name }})" \
-            -f description="${{ job.status == 'success' && 'Successful' || 'Failed' }}" \
+            -f description="$desc" \
             -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
