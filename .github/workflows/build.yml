@@ -49,13 +49,39 @@ jobs:
       - name: Set environment vars
         id: vars
         run: |
-          echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "GRPC_VER=v2.0.1" >> $GITHUB_ENV
-          echo "WEB_VER=v2.0.2" >> $GITHUB_ENV
-          echo "GRPC_BLD_MSG=Gold_Chainguard" >> $GITHUB_ENV
-          echo "WEB_BLD_MSG=Gold_Chainguard" >> $GITHUB_ENV
-          echo "BLD_NMBR=${{ github.run_number }}" >> $GITHUB_ENV
-          echo "BLD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+          # Local vars
+          tag=$(git rev-parse --short HEAD)
+          g_ver="v2.0.1"
+          w_ver="v2.0.2"
+          g_bld_msg="Gold_Chainguard"
+          w_bld_msg="Gold_Chainguard"
+          bld_num=${{ github.run_number }}
+          bld_dt=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+          # Env vars
+          echo "IMAGE_TAG=$tag" >> $GITHUB_ENV
+          echo "GRPC_VER=$g_ver" >> $GITHUB_ENV
+          echo "WEB_VER=$w_ver" >> $GITHUB_ENV
+          echo "GRPC_BLD_MSG=$g_bld_msg" >> $GITHUB_ENV
+          echo "WEB_BLD_MSG=$w_bld_msg" >> $GITHUB_ENV
+          echo "BLD_NMBR=$bld_num" >> $GITHUB_ENV
+          echo "BLD_DATE=$bld_dt" >> $GITHUB_ENV
+
+          # Set gRPC annotation
+          echo "GRPC_ANNOTATION<<EOF" >> $GITHUB_ENV
+          echo "index:org.opencontainers.image.description=Multiple gRPC services for 6G KPIs."
+          echo "  Version: $g_ver"
+          echo "  Trivy Scan: (No critical or high vulnerabilities)"
+          echo "  Build Date: $bld_dt"
+          echo "EOF" >> $GITHUB_ENV
+
+          # Set web annotation
+          echo "WEB_ANNOTATION<<EOF" >> $GITHUB_ENV
+          echo "index:org.opencontainers.image.description=NTN Sustainability Control - Web GUI"
+          echo "  Version: $w_ver"
+          echo "  Trivy Scan: (No critical or high vulnerabilities)"
+          echo "  Build Date: $bld_dt"
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         if: |
@@ -74,11 +100,7 @@ jobs:
           file: ./grpc/Dockerfile
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest
-          annotations: |
-            index:org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs.
-              Version: ${env.GRPC_VER}-${env.IMAGE_TAG}-${env.BLD_NMBR}-${env.GRPC_BLD_MSG}
-              Trivy Scan: (No critical / high vulnerabilities)
-              Build Date: ${{ env.BLD_DATE }}
+          annotations: ${{ env.GRPC_ANNOTATION }}
           build-args: |
             GRPC_VER=${{ env.GRPC_VER }}
             IMAGE_TAG=${{ env.IMAGE_TAG }}
@@ -97,11 +119,7 @@ jobs:
           file: ./web/Dockerfile
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest
-          annotations: |
-            index:org.opencontainers.image.description=NTN Sustainability Control - Web GUI
-              Version: ${env.WEB_VER}-${env.IMAGE_TAG}-${env.BLD_NMBR}-${env.WEB_BLD_MSG}
-              Trivy Scan: (No critical / high vulnerabilities)
-              Build Date: ${{ env.BLD_DATE }}
+          annotations: ${{ env.WEB_ANNOTATION }}
           build-args: |
             WEB_VER=${{ env.WEB_VER }}
             IMAGE_TAG=${{ env.IMAGE_TAG }}
