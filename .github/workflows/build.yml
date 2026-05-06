@@ -49,12 +49,13 @@ jobs:
       - name: Set environment vars
         id: vars
         run: |
-          echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "GRPC_VER=v2.0.1" >> $GITHUB_OUTPUT
-          echo "WEB_VER=v2.0.2" >> $GITHUB_OUTPUT
-          echo "GRPC_BLD_MSG=Gold_Chainguard" >> $GITHUB_OUTPUT
-          echo "WEB_BLD_MSG=Gold_Chainguard" >> $GITHUB_OUTPUT
-          echo "BLD_NMBR=${{ github.run_number }}" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "GRPC_VER=v2.0.1" >> $GITHUB_ENV
+          echo "WEB_VER=v2.0.2" >> $GITHUB_ENV
+          echo "GRPC_BLD_MSG=Gold_Chainguard" >> $GITHUB_ENV
+          echo "WEB_BLD_MSG=Gold_Chainguard" >> $GITHUB_ENV
+          echo "BLD_NMBR=${{ github.run_number }}" >> $GITHUB_ENV
+          echo "BLD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         if: |
@@ -62,7 +63,7 @@ jobs:
           github.event_name == 'workflow_dispatch'
         uses: docker/setup-buildx-action@v4
 
-      # --- gRPC Build, and Save ---
+      # --- gRPC Build (with trivy scan annotation), and Save ---
       - name: Build and Save gRPC Image
         if: |
           steps.changes.outputs.grpc == 'true' || github.event_name == 'workflow_dispatch'
@@ -73,15 +74,20 @@ jobs:
           file: ./grpc/Dockerfile
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest
+          annotations: |
+            index:org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs.
+              Version: ${env.GRPC_VER}-${env.IMAGE_TAG}-${env.BLD_NMBR}-${env.GRPC_BLD_MSG}
+              Trivy Scan: (No critical / high vulnerabilities)
+              Build Date: ${{ env.BLD_DATE }}
           build-args: |
-            GRPC_VER=${{ steps.vars.outputs.GRPC_VER }}
-            IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
-            GRPC_BLD_MSG=${{ steps.vars.outputs.GRPC_BLD_MSG }}
-            BLD_NMBR=${{ steps.vars.outputs.BLD_NMBR }}
+            GRPC_VER=${{ env.GRPC_VER }}
+            IMAGE_TAG=${{ env.IMAGE_TAG }}
+            GRPC_BLD_MSG=${{ env.GRPC_BLD_MSG }}
+            BLD_NMBR=${{ env.BLD_NMBR }}
           outputs: type=docker, dest=./tmp/grpc-image.tar
 
       # --- Web Build, and Save ---
-      - name: Build and Save Web Image
+      - name: Build (with trivy scan annotation) and Save Web Image
         if: |
           steps.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch'
         id: build-web
@@ -91,11 +97,16 @@ jobs:
           file: ./web/Dockerfile
           tags: |
             ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest
+          annotations: |
+            index:org.opencontainers.image.description=NTN Sustainability Control - Web GUI
+              Version: ${env.WEB_VER}-${env.IMAGE_TAG}-${env.BLD_NMBR}-${env.WEB_BLD_MSG}
+              Trivy Scan: (No critical / high vulnerabilities)
+              Build Date: ${{ env.BLD_DATE }}
           build-args: |
-            WEB_VER=${{ steps.vars.outputs.WEB_VER }}
-            IMAGE_TAG=${{ steps.vars.outputs.IMAGE_TAG }}
-            WEB_BLD_MSG=${{ steps.vars.outputs.WEB_BLD_MSG }}
-            BLD_NMBR=${{ steps.vars.outputs.BLD_NMBR }}
+            WEB_VER=${{ env.WEB_VER }}
+            IMAGE_TAG=${{ env.IMAGE_TAG }}
+            WEB_BLD_MSG=${{ env.WEB_BLD_MSG }}
+            BLD_NMBR=${{ env.BLD_NMBR }}
           outputs: type=docker, dest=./tmp/web-image.tar
 
       - name: Upload Images

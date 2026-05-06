@@ -17,8 +17,9 @@ on:
 permissions:
   actions: read
   contents: read
-  attestations: write  
-  packages: write # Required to pull from GHCR
+  attestations: write
+  id-token: write
+  packages: write
   statuses: write
 
 env:
@@ -91,22 +92,16 @@ jobs:
               image_name=$(basename "$image")
               
               if [[ "$image_name" == "grpc-image.tar" ]]; then
-                g_desc=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.description" }}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest)
                 g_ver=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest)
                 
-                echo "AP_GRPC=true" >> $GITHUB_ENV
-                echo "GRPC_DESC=$g_desc" >> $GITHUB_ENV
+                echo "PUSH_GRPC=true" >> $GITHUB_ENV
                 echo "GRPC_VER=$g_ver" >> $GITHUB_ENV
-                echo "GRPC_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
-
+              
               elif [[ "$image_name" == "web-image.tar" ]]; then
-                w_desc=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.description" }}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest)
                 w_ver=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest)
                 
-                echo "AP_WEB=true" >> $GITHUB_ENV
-                echo "WEB_DESC=$w_desc" >> $GITHUB_ENV
+                echo "PUSH_WEB=true" >> $GITHUB_ENV
                 echo "WEB_VER=$w_ver" >> $GITHUB_ENV
-                echo "WEB_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
               fi
             done
           else
@@ -117,6 +112,7 @@ jobs:
         if: github.event_name != 'workflow_run' || steps.load-images.outcome == 'success'
         id: start-stack
         run: |    
+          # Use docker compose to pull the images, if not already loaded (in load-images step above, e.g. in manual run)
           echo "Starting stack..."
           docker compose -f ./docker-compose-prod.yml up -d --wait
 
@@ -148,57 +144,41 @@ jobs:
           path: ./playwright/playwright-report # Report location 
           retention-days: 30
 
-      # Setup buildx
-      - name: Set up Docker Buildx
-        if: env.AP_GRPC == 'true' || env.AP_WEB == 'true'
-        uses: docker/setup-buildx-action@v4
+      # Push images to ghcr
+      - name: Push images
+        if: steps.run-tests.outcome == 'success' && (env.PUSH_GRPC == 'true' || env.PUSH_WEB == 'true')
+        id: push-images
+        run: |
+          # Push gRPC image 
+          if [[ ${{ env.PUSH_GRPC }} == 'true' ]]; then
+            docker tag ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:${{ env.GRPC_VER }}
+            docker push -a ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}
+            g_digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest | cut -d'@' -f2)
+            echo "GRPC_DIGEST=$g_digest" >> $GITHUB_ENV
+          fi
 
-      # Annotate and push gRPC image
-      - name: Push gRPC image with Annotation
-        if: env.AP_GRPC == 'true'
-        id: push-grpc
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./grpc/Dockerfile
-          push: true
-          cache-from: type=docker, src=./tmp/grpc-image.tar
-          tags: |
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:${{ env.GRPC_VER }}
-          annotations: |
-            index:org.opencontainers.image.description=${{ env.GRPC_DESC }} - ${{ env.GRPC_VER }} - Trivy Scan (No critical/high vulnerabilities) - ${{ env.GRPC_DATE }}
-
-      # Annotate and push web image
-      - name: Push web image with Annotation
-        if: env.AP_WEB == 'true'
-        id: push-web
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./web/Dockerfile
-          push: true
-          cache-from: type=docker, src=./tmp/web-image.tar
-          tags: |
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest
-            ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:${{ env.WEB_VER }}
-          annotations: |
-            index:org.opencontainers.image.description=${{ env.WEB_DESC }} - ${{ env.WEB_VER }} - Trivy Scan (No critical/high vulnerabilities) - ${{ env.WEB_DATE }}
+          # Push web image 
+          if [[ ${{ env.PUSH_WEB }} == 'true' ]]; then
+            docker tag ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:${{ env.WEB_VER }}
+            docker push -a ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
+            w_digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest | cut -d'@' -f2)
+            echo "WEB_DIGEST=$w_digest" >> $GITHUB_ENV
+          fi
 
       # --- Attestations ---
       - name: Attest gRPC Image
-        if: steps.push-grpc.outcome == 'success'
+        if: steps.push-images.outcome == 'success' && env.PUSH_GRPC == 'true'
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}
-          subject-digest: ${{ steps.push-grpc.outputs.digest }}
+          subject-digest: ${{ env.GRPC_DIGEST }}
 
       - name: Attest Web Image
-        if: steps.push-web.outcome == 'success'
+        if: steps.push-images.outcome == 'success' && env.PUSH_WEB == 'true'
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
-          subject-digest: ${{ steps.push-web.outputs.digest }}
+          subject-digest: ${{ env.WEB_DIGEST }}
       
       # Final status summary
       - name: Final Status Notification
