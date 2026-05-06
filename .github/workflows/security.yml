@@ -141,14 +141,41 @@ jobs:
       - name: Summary Status
         if: always()
         run: |
+          # Helper function to find the version anywhere
+          get_version() {
+            local img=$1
+            # 1. Try local docker first (Works for Push builds)
+            local ver=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$img" 2>/dev/null || echo "")
+            
+            # 2. If local failed, try remote (Works for Scheduled scans)
+            if [ -z "$ver" ]; then
+              ver=$(skopeo inspect docker://"$img" | jq -r '.Labels["org.opencontainers.image.version"] // "n/a"' 2>/dev/null || echo "not_found")
+            fi
+            echo "$ver"
+          }
+
+          # Get gRPC image version, if scanned
+          if [[ ${{ steps.scan-grpc.outcome }} != 'skipped' ]]; then
+            g_full_ver=$(get_version "${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest")
+          else
+            g_full_ver='➖'
+          fi
+
+          # Get web image version, if scanned
+          if [[ ${{ steps.scan-web.outcome }} != 'skipped' ]]; then
+            w_full_ver=$(get_version "${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest")
+          else
+            w_full_ver='➖'
+          fi
+
           cat <<EOF >> $GITHUB_STEP_SUMMARY
           ---
           ### Vulnerability Scan Status Summary
           ---
-          | **Image** | **Status** |
-          |:---------:|:----------:|
-          | gRPC      | ${{ steps.scan-grpc.outcome == 'success' && '✅ Passed' || (steps.scan-grpc.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed') }} |
-          | Web       | ${{ steps.scan-web.outcome == 'success' && '✅ Passed' || (steps.scan-web.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed') }} |
+          | **Image** | **Status** | **Version** |
+          |:---------:|:----------:|:-----------:|
+          | gRPC      | ${{ steps.scan-grpc.outcome == 'success' && '✅ Passed' || (steps.scan-grpc.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed') }} | $g_full_ver |
+          | Web       | ${{ steps.scan-web.outcome == 'success' && '✅ Passed' || (steps.scan-web.outcome == 'skipped' && '⚪ Skipped' || '❌ Failed') }} | $w_full_ver |
           ---
           EOF
 
