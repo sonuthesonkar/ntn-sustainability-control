@@ -67,13 +67,16 @@ jobs:
           echo "BLD_NMBR=$bld_num" >> $GITHUB_ENV
           echo "BLD_DATE=$bld_dt" >> $GITHUB_ENV
 
+          # Attempting heredoc with long single line, to bypass error (index annotations not supported for single platform export)
           # Set gRPC annotation
-          g_annotate="index:org.opencontainers.image.description=Multiple gRPC services for 6G KPIs. [Version: $g_ver] [Trivy Scan: (No critical or high vulnerabilities)] [Build Date: $bld_dt]"
-          echo "GRPC_ANNOTATION=$g_annotate" >> $GITHUB_ENV
+          echo "GRPC_ANNOTATION<<EOF" >> $GITHUB_ENV
+          echo "index:org.opencontainers.image.description=Multiple gRPC services to monitor and maintain 6G sustainability KPIs. [Version: $g_ver] [Trivy Scan: (No critical or high vulnerabilities)] [Build Date: $bld_dt]"
+          echo "EOF" >> $GITHUB_ENV
 
           # Set web annotation
-          w_annotate="index:org.opencontainers.image.description=NTN Sustainability Control - Web GUI [Version: $w_ver] [Trivy Scan: (No critical or high vulnerabilities)] [Build Date: $bld_dt]"
-          echo "WEB_ANNOTATION=$w_annotate" >> $GITHUB_ENV
+          echo "WEB_ANNOTATION<<EOF" >> $GITHUB_ENV
+          echo "index:org.opencontainers.image.description=NTN Sustainability Control - Web GUI [Version: $w_ver] [Trivy Scan: (No critical or high vulnerabilities)] [Build Date: $bld_dt]"
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         if: |
