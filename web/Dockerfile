@@ -34,7 +34,8 @@ LABEL org.opencontainers.image.version="${WEB_VER}-${IMAGE_TAG}-${BLD_NMBR}-${WE
 LABEL org.opencontainers.image.licenses="MIT"
 
 # In the runtime stage (before switching to USER 65532), 
-# clean up the not required modules (parent folder itself) from the base image, avoiding security scan checking unnecesary modules
+# Clean up the not required modules (parent folder itself) from the base image, avoiding security scan checking unnecesary modules
+# Required to fix vulnerability (CVE-2026-42338)
 USER root
 RUN rm -rf /usr/lib/node_modules \
     /usr/bin/npm \

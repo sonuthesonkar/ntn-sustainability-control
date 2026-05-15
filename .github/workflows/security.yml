@@ -155,14 +155,14 @@ jobs:
           }
 
           # Get gRPC image version, if scanned
-          if [[ ${{ steps.scan-grpc.outcome }} != 'skipped' ]]; then
+          if [[ "${{ steps.scan-grpc.outcome }}" != "skipped" ]]; then
             g_full_ver=$(get_version "${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest")
           else
             g_full_ver='➖'
           fi
 
           # Get web image version, if scanned
-          if [[ ${{ steps.scan-web.outcome }} != 'skipped' ]]; then
+          if [[ "${{ steps.scan-web.outcome }}" != "skipped" ]]; then
             w_full_ver=$(get_version "${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest")
           else
             w_full_ver='➖'
@@ -186,7 +186,7 @@ jobs:
           # Use the head_sha from the trigger or the current sha
           SHA=${{ github.event.workflow_run.head_sha || github.sha }}
           
-          if [[ ${{ steps.scan-grpc.outcome }} == 'skipped' && ${{ steps.scan-web.outcome }} == 'skipped' ]]; then
+          if [[ "${{ steps.scan-grpc.outcome }}" == "skipped" && "${{ steps.scan-web.outcome }}" == "skipped" ]]; then
             desc="Skipped"
           else
             desc="${{ job.status == 'success' && 'Successful' || 'Failed' }}"

@@ -150,7 +150,7 @@ jobs:
         id: push-images
         run: |
           # Push gRPC image 
-          if [[ ${{ env.PUSH_GRPC }} == 'true' ]]; then
+          if [[ "${{ env.PUSH_GRPC }}" == "true" ]]; then
             docker tag ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:${{ env.GRPC_VER }}
             docker push -a ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}
             g_digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_GRPC }}:latest | cut -d'@' -f2)
@@ -158,7 +158,7 @@ jobs:
           fi
 
           # Push web image 
-          if [[ ${{ env.PUSH_WEB }} == 'true' ]]; then
+          if [[ "${{ env.PUSH_WEB }}" == "true" ]]; then
             docker tag ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:${{ env.WEB_VER }}
             docker push -a ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}
             w_digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.REGISTRY }}${{ env.IMAGE_NAME_WEB }}:latest | cut -d'@' -f2)
@@ -214,7 +214,7 @@ jobs:
           # Use the head_sha from the trigger or the current sha
           SHA=${{ github.event.workflow_run.head_sha || github.sha }}
           
-          if [[ ${{ steps.run-tests.outcome }} == 'skipped' ]]; then
+          if [[ "${{ steps.run-tests.outcome }}" == "skipped" ]]; then
             desc="Skipped"
           else
             desc="${{ job.status == 'success' && 'Successful' || 'Failed' }}"

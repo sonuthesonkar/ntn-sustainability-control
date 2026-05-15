@@ -152,7 +152,7 @@ jobs:
           # Use the head_sha from the trigger or the current sha
           SHA=${{ github.event.workflow_run.head_sha || github.sha }}
 
-          if [[ ${{ steps.build-grpc.outcome }} == 'skipped' && ${{ steps.build-web.outcome }} == 'skipped' ]]; then
+          if [[ "${{ steps.build-grpc.outcome }}" == "skipped" && "${{ steps.build-web.outcome }}" == "skipped" ]]; then
             desc="Skipped"
           else
             desc="${{ job.status == 'success' && 'Successful' || 'Failed' }}"
