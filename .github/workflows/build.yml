@@ -58,7 +58,7 @@ jobs:
           g_bld_msg="Gold_Chainguard"
           g_full_ver="$g_ver-$tag-$bld_num-$g_bld_msg"
           
-          w_ver="v2.0.2"
+          w_ver="v2.0.3"
           w_bld_msg="Gold_Chainguard"
           w_full_ver="$w_ver-$tag-$bld_num-$w_bld_msg"
 

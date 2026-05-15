@@ -16,7 +16,7 @@
     "winston": "^3.19.0",
     "pg": "^8.11.3",
     "echarts": "^5.5.0",
-    "mermaid": "^10.9.0"
+    "mermaid": "^10.9.6"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.4",
