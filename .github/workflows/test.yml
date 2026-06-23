@@ -44,14 +44,24 @@ jobs:
       - name: Check for build artifacts
         if: github.event_name == 'workflow_run'
         run: |
-          # Use GitHub CLI to check if the Build produced an artifact for this commit
-          HAS_ARTIFACT=$(gh api "repos/${{ github.repository }}/actions/workflows/build.yml/runs?head_sha=${{ github.event.workflow_run.head_sha }}" --jq ".workflow_runs[0].id" | xargs -I {} gh api repos/${{ github.repository }}/actions/runs/{}/artifacts --jq '.artifacts[] | select(.name=="upload-images")')
+          # 1. Fetch the build run ID for this specific commit SHA
+          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/build.yml/runs?head_sha=${{ github.event.workflow_run.head_sha }}" --jq ".workflow_runs[0].id")
           
-          if [[ -z "$HAS_ARTIFACT" ]]; then
-            echo "No new images were built for this commit. Skipping tests."
+          # 2. Safety check: If RUN_ID is empty or null (common during scheduled runs), skip artifact lookup
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No build workflow found for this SHA (Likely scheduled trigger). Skipping tests."
             echo "IMAGES_EXIST=false" >> $GITHUB_ENV
           else
-            echo "IMAGES_EXIST=true" >> $GITHUB_ENV
+            # 3. Look for the specific artifact within the valid run ID
+            HAS_ARTIFACT=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "upload-images") | .name')
+            
+            if [[ -z "$HAS_ARTIFACT" ]]; then
+              echo "No new images were built for this commit. Skipping tests."
+              echo "IMAGES_EXIST=false" >> $GITHUB_ENV
+            else
+              echo "Artifact found. Proceeding with tests."
+              echo "IMAGES_EXIST=true" >> $GITHUB_ENV
+            fi
           fi
         env:
           GH_TOKEN: ${{ github.token }}
