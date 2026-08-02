@@ -44,24 +44,42 @@ jobs:
       - name: Check for build artifacts
         if: github.event_name == 'workflow_run'
         run: |
-          # 1. Fetch the build run ID for this specific commit SHA
-          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/build.yml/runs?head_sha=${{ github.event.workflow_run.head_sha }}" --jq ".workflow_runs[0].id")
+          # 1. Grab the immediate parent Security run ID natively
+          PARENT_RUN_ID="${{ github.event.workflow_run.id }}"
           
-          # 2. Safety check: If RUN_ID is empty or null (common during scheduled runs), skip artifact lookup
-          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-            echo "No build workflow found for this SHA (Likely scheduled trigger). Skipping tests."
+          # 2. Query the GitHub API for the specific event that started that parent run
+          GRANDPARENT_EVENT=$(gh api "repos/${{ github.repository }}/actions/runs/$PARENT_RUN_ID" --jq '.event')
+          
+          echo "The parent workflow was triggered by: $GRANDPARENT_EVENT"  
+
+          # 3. Branch test execution based on that event
+          if [ "$GRANDPARENT_EVENT" = "schedule" ]; then
+            echo "Security run was a cron schedule. Skipping tests."
             echo "IMAGES_EXIST=false" >> $GITHUB_ENV
-          else
-            # 3. Look for the specific artifact within the valid run ID
-            HAS_ARTIFACT=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "upload-images") | .name')
+          elif [ "$GRANDPARENT_EVENT" = "workflow_run" ]; then
+            # 3.1 Fetch the build run ID for this specific commit SHA
+            RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/build.yml/runs?head_sha=${{ github.event.workflow_run.head_sha }}" --jq ".workflow_runs[0].id")
             
-            if [[ -z "$HAS_ARTIFACT" ]]; then
-              echo "No new images were built for this commit. Skipping tests."
+            # 3.2 Safety check: If RUN_ID is empty or null, skip artifact lookup
+            if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+              echo "No build workflow found for this SHA. Skipping tests."
               echo "IMAGES_EXIST=false" >> $GITHUB_ENV
             else
-              echo "Artifact found. Proceeding with tests."
-              echo "IMAGES_EXIST=true" >> $GITHUB_ENV
+              # 3.3 Strict boolean check for the specific artifact name
+              HAS_ARTIFACT=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" --jq '[.artifacts[].name] | any(. == "upload-images")')
+              
+              # 3.4 Strict string evaluation against the jq boolean output
+              if [ "$HAS_ARTIFACT" = "false" ]; then
+                echo "No new images were built for this commit. Skipping tests."
+                echo "IMAGES_EXIST=false" >> $GITHUB_ENV
+              else
+                echo "Artifact found. Proceeding with tests."
+                echo "IMAGES_EXIST=true" >> $GITHUB_ENV
+              fi
             fi
+          else
+            echo "Triggered by an unexpected event ($GRANDPARENT_EVENT). Skipping tests."
+            echo "IMAGES_EXIST=false" >> $GITHUB_ENV
           fi
         env:
           GH_TOKEN: ${{ github.token }}
