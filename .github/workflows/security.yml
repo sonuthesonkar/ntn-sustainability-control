@@ -90,6 +90,7 @@ jobs:
           output: 'trivy-results-grpc.sarif'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
+          limit-severities-for-sarif: true
 
       # Upload grpc results to GitHub Security tab
       - name: Upload grpc results to GitHub Security
@@ -119,6 +120,7 @@ jobs:
           output: 'trivy-results-web.sarif'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
+          limit-severities-for-sarif: true
 
       # Upload web results to GitHub Security tab
       - name: Upload web results to GitHub Security
